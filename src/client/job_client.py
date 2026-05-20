@@ -7,11 +7,12 @@ from src.exceptions.exceptions import NaukriAuthError, NaukriParseError
 from src.utils.request_helper import with_exponential_retry
 from src.utils.nkparam_generator import generate_nkparam
 from src.config.constants import RECOMMENDED_JOBS_URL, JOB_SEARCH_URL, APPLY_JOB_URL
+from src.config import agent_config as config
 import json
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
 _handler = logging.StreamHandler()
 _handler.setFormatter(
     logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S")
@@ -312,18 +313,12 @@ class NaukriJobClient:
         payload = {
             "strJobsarr":       [job.job_id],
             "logstr":           logstr,
-            "flowtype":         "show",
-            "crossdomain":      True,
-            "jquery":           1,
-            "rdxMsgId":         "",
-            "chatBotSDK":       True,
+            **config.APPLY_PAYLOAD_DEFAULTS,
             "mandatory_skills": mandatory_skills or [],
             "optional_skills":  optional_skills or [],
-            "applyTypeId":      "107",
-            "closebtn":         "y",
+            "applyTypeId":      config.APPLY_TYPE_ID,
             "applySrc":         apply_src,
             "sid":              sid,
-            "mid":              "",
         }
 
         headers = self._client._build_headers(auth=True)
@@ -367,23 +362,11 @@ class NaukriJobClient:
         source="recommended",
     ) -> dict:
 
-        # Static profile values used when generating questionnaire answers.
-        # Update these to match the candidate's actual profile.
-        PROFILE = {
-            "current_ctc":  "5",
-            "expected_ctc": "7",
-            "exp_total":    "2",
-            "exp_node":     "2",
-            "exp_python":   "1",
-            "notice_days":  30,
-            "skills": [
-                "node", "docker", "kubernetes",
-                "aws", "ci/cd", "jenkins", "terraform",
-            ],
-        }
+        profile = config.QUESTIONNAIRE_PROFILE
 
         def build_smart_answers(questionnaire: list, profile: dict) -> dict:
             answers = {}
+            profile_skills = [skill.lower() for skill in profile["skills"]]
 
             def pick_yes(options: dict) -> str:
                 # Prefer any option whose label contains "yes".
@@ -425,15 +408,15 @@ class NaukriJobClient:
                     elif "notice" in qtext:
                         ans = str(profile["notice_days"])
                     else:
-                        ans = "1"
+                        ans = config.DEFAULT_TEXTBOX_ANSWER
 
                 else:
                     if options:
                         if "notice" in qtext:
                             key = pick_notice(options, profile["notice_days"])
-                        elif any(skill in qtext for skill in profile["skills"]):
+                        elif any(skill in qtext for skill in profile_skills):
                             key = pick_yes(options)
-                        elif any(x in qtext for x in ["do you", "have you", "experience"]):
+                        elif any(x in qtext for x in config.YES_QUESTION_HINTS):
                             key = pick_yes(options)
                         else:
                             key = list(options.keys())[0]
@@ -441,13 +424,13 @@ class NaukriJobClient:
                         # Option-type answers must always be wrapped in a list.
                         ans = [key]
                     else:
-                        ans = "1"
+                        ans = config.DEFAULT_TEXTBOX_ANSWER
 
                 answers[qid] = ans
 
             return answers
 
-        answers = build_smart_answers(questionnaire, PROFILE)
+        answers = build_smart_answers(questionnaire, profile)
         logger.debug("Generated answers: %s", answers)
 
         apply_src, logstr_template = APPLY_SRC_MAP.get(source, APPLY_SRC_MAP["recommended"])
@@ -456,18 +439,12 @@ class NaukriJobClient:
         payload = {
             "strJobsarr":       [job.job_id],
             "logstr":           logstr,
-            "flowtype":         "show",
-            "crossdomain":      True,
-            "jquery":           1,
-            "rdxMsgId":         "",
-            "chatBotSDK":       True,
+            **config.APPLY_PAYLOAD_DEFAULTS,
             "mandatory_skills": mandatory_skills or [],
             "optional_skills":  optional_skills or [],
-            "applyTypeId":      "107",
-            "closebtn":         "y",
+            "applyTypeId":      config.APPLY_TYPE_ID,
             "applySrc":         apply_src,
             "sid":              sid,
-            "mid":              "",
             "applyData": {
                 job.job_id: {
                     "answers": answers,
@@ -508,7 +485,7 @@ class NaukriJobClient:
 
         data = res.json()
         raw_jobs = data.get("jobDetails") or []
-        print(raw_jobs[:5])
+        logger.debug("Recommended jobs fetched: %d", len(raw_jobs))
         return [self._parse_job(j) for j in raw_jobs]
 
     # ----------------------------------------------------------------------------------

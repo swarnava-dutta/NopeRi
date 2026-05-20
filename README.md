@@ -26,12 +26,6 @@ Put logged-in Naukri browser cookies in root `cookies.json`.
 The file can be a browser-export cookie list or simple name/value object.
 It must include `nauk_at`.
 
-For `apply_agent.py`, set OpenAI key in `.env`:
-
-```env
-OPEN_API_KEY=your-openai-api-key
-```
-
 ## Quick Start
 
 ```python
@@ -55,14 +49,21 @@ for job in jobs:
 python apply_agent.py
 ```
 
+Edit agent settings in `src/config/agent_config.py`:
+
+- search keywords, locations, experience, pages, and job age
+- daily apply limit, mandatory skill split, delays, and payload defaults
+- questionnaire answers such as CTC, experience, notice period, and skills
+
 Agent flow:
 
 1. Login using `cookies.json`
-2. Fetch jobs
-3. Score jobs with AI
-4. Apply to passing jobs
-5. Skip external company-site applications
-6. Save applied job IDs to `applied_jobs.csv`
+2. Fetch recommended jobs
+3. Apply recommended jobs one by one
+4. Fetch jobs from each configured search term
+5. Apply search jobs one by one
+6. Skip external company-site applications
+7. Save applied job IDs to `applied_jobs.csv`
 
 ## API
 

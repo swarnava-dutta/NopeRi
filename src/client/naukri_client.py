@@ -9,7 +9,7 @@ from src.exceptions.exceptions import *
 from src.models.models import *
 from src.utils.request_helper import with_exponential_retry
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.WARNING)
 _handler = logging.StreamHandler()
 _handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S"))
 logger.addHandler(_handler)
