@@ -9,6 +9,13 @@ apply-time defaults. Keep API endpoint constants in constants.py.
 # ---------------------------------------------------------------------------
 
 APPLIED_JOBS_CSV = "applied_jobs.csv"
+EXTERNAL_JOBS_CSV = "external_jobs.csv"
+
+# Set RUN_RECOMMENDED_PHASE=False to skip recommended jobs and go straight to
+# configured search terms.
+RUN_RECOMMENDED_PHASE = True
+RUN_SEARCH_PHASE = True
+DOCUMENT_EXTERNAL_LINKS = True
 
 SEARCH_QUERIES = [
     {"keyword": "AI Engineer", "location": ""},

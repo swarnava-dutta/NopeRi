@@ -53,17 +53,27 @@ Edit agent settings in `src/config/agent_config.py`:
 
 - search keywords, locations, experience, pages, and job age
 - daily apply limit, mandatory skill split, delays, and payload defaults
+- `RUN_RECOMMENDED_PHASE=False` to skip recommended jobs and go straight to search agents
+- `RUN_SEARCH_PHASE=False` to run recommended jobs only
+- `DOCUMENT_EXTERNAL_LINKS=True` to save company-site apply links to `external_jobs.csv`
 - questionnaire answers such as CTC, experience, notice period, and skills
 
-Agent flow:
+Plain Python agent flow:
 
 1. Login using `cookies.json`
-2. Fetch recommended jobs
-3. Apply recommended jobs one by one
-4. Fetch jobs from each configured search term
-5. Apply search jobs one by one
-6. Skip external company-site applications
-7. Save applied job IDs to `applied_jobs.csv`
+2. `NaukriApplyOrchestrator` starts the phase order
+3. `RecommendedJobAgent` fetches recommended jobs, if enabled
+4. `SearchTermApplyAgent` runs once per configured search term, if enabled
+5. `EasyApplyAgent` applies Naukri easy-apply jobs
+6. `ExternalLinkAgent` documents company-site apply links in `external_jobs.csv`
+7. Applied job IDs are saved to `applied_jobs.csv`
+
+Runtime logs use readable status symbols:
+
+- `✅ Applied`
+- `❌ External link`
+- `⏭️ Already applied`
+- `⚠️ Failed`
 
 ## API
 

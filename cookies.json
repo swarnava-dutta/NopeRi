@@ -104,7 +104,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": "Wed, 20 May 2026 06:36:47 GMT",
+    "expirationDate": "Wed, 20 May 2026 07:03:51 GMT",
     "hostOnly": false,
     "httpOnly": false,
     "name": "nauk_cs",
@@ -234,7 +234,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": "Wed, 20 May 2026 06:36:47 GMT",
+    "expirationDate": "Wed, 20 May 2026 07:03:51 GMT",
     "hostOnly": false,
     "httpOnly": false,
     "name": "nauk_ps",
