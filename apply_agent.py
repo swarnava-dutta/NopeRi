@@ -4,7 +4,7 @@
 # Entry point for the automated Naukri job application agent.
 #
 # What this script does end to end:
-#   1. Logs in to Naukri using credentials from the environment.
+#   1. Logs in to Naukri using cookies.json.
 #   2. Searches for jobs across a curated set of keyword/location queries.
 #   3. Deduplicates results and passes them through an AI scoring pipeline.
 #   4. Iterates over jobs that passed the filter and applies to each one.
@@ -20,7 +20,7 @@
 #   - colorama            : terminal color output
 #
 # Configuration:
-#   Set USERNAME, PASSWORD, and OPEN_API_KEY in a .env file.
+#   Keep cookies.json in the repo root and set OPEN_API_KEY in a .env file.
 #   Adjust BQUERIES, EXPERIENCE_LEVELS, PAGES, and JOB_AGE inside
 #   fetch_all_jobs() to tune what gets fetched each run.
 # ----------------------------------------------------------------------------------
@@ -307,15 +307,13 @@ def fetch_all_jobs(jc: NaukriJobClient) -> list:
 
 if __name__ == "__main__":
 
-    username = os.getenv("USERNAME")
-    password = os.getenv("PASSWORD")
     ai_key   = os.getenv("OPEN_API_KEY")
 
     # Step 1: authenticate and establish session.
     print_section_title("logging in to naukri")
-    client = NaukriLoginClient(username, password)
+    client = NaukriLoginClient()
     client.login()
-    print(f"  {Fore.GREEN}Logged in as {Fore.YELLOW}{username}{Style.RESET_ALL}")
+    print(f"  {Fore.GREEN}Logged in using cookies.json{Style.RESET_ALL}")
 
     # Step 2: fetch raw jobs from search API.
     jc   = NaukriJobClient(client)

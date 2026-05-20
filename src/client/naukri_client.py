@@ -1,20 +1,21 @@
 import logging
-import random
+import json
+import os
 import time
 import functools
-from io import BytesIO
 from src.client.session import build_session
 from src.config.constants import *
 from src.exceptions.exceptions import *
 from src.models.models import *
-from src.utils.extractors import extract_form_key2, extract_all_js_urls
-import requests
 from src.utils.request_helper import with_exponential_retry
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 _handler = logging.StreamHandler()
 _handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S"))
 logger.addHandler(_handler)
+
+DEFAULT_COOKIE_FILE = "cookies.json"
+DEFAULT_COOKIE_DOMAIN = ".naukri.com"
 
 
 # ------------------------------------------------------------------
@@ -72,14 +73,6 @@ DEFAULT_HEADERS = {
     "x-requested-with": "XMLHttpRequest",
 }
 
-UPLOAD_HEADERS = {
-    "accept": "application/json, text/javascript, */*; q=0.01",
-    "appid": "105",
-    "origin": "https://www.naukri.com",
-    "referer": "https://www.naukri.com/",
-    "systemid": "fileupload",
-}
-
 OTP_HEADERS = {
   "accept": "application/json",
   "appid": "100",
@@ -99,13 +92,14 @@ OTP_HEADERS = {
 
 class NaukriLoginClient:
 
-    def __init__(self, username, password):
+    def __init__(self, username=None, cookie_file=DEFAULT_COOKIE_FILE):
         self.username = username
-        self.password = password
+        self.cookie_file = cookie_file
         self.session = build_session()
         self.naukri_session = None
-        self.profile_id = None
-        self.cache = {}
+        self.account_id = None
+        self._cookie_payload = None
+        self._cookie_payload_shape = None
 
     def _build_headers(self, auth=False, extra=None):
         headers = DEFAULT_HEADERS.copy()
@@ -122,37 +116,340 @@ class NaukriLoginClient:
     # Login
     # ------------------------------------------------------------------
 
-    @with_exponential_retry(label="login")
-    def _login_request(self):
-        """Raw login HTTP call (separated so the decorator wraps only I/O)."""
-        return self.session.post(
-            LOGIN_URL,
-            headers=self._build_headers(),
-            json={"username": self.username, "password": self.password},
-        )
+    def _get_cookie_value(self, name):
+        try:
+            cookie = self.session.get_cookie(name)
+            if cookie and getattr(cookie, "value", None):
+                return cookie.value
+        except Exception:
+            pass
+
+        try:
+            value = self.session.cookies.get(name)
+            if value:
+                return value
+        except Exception:
+            pass
+
+        try:
+            for cookie in self.session.cookies:
+                if isinstance(cookie, dict):
+                    if (cookie.get("name") or cookie.get("key")) == name:
+                        return cookie.get("value")
+                elif getattr(cookie, "name", None) == name:
+                    return cookie.value
+        except Exception:
+            pass
+
+        try:
+            return self.session.cookies.get_dict().get(name)
+        except Exception:
+            return None
+
+    def _normalise_cookie_records(self, payload):
+        if isinstance(payload, list):
+            self._cookie_payload_shape = "list"
+            return payload
+
+        if isinstance(payload, dict) and isinstance(payload.get("cookies"), list):
+            self._cookie_payload_shape = "wrapped_list"
+            return payload["cookies"]
+
+        if isinstance(payload, dict):
+            self._cookie_payload_shape = "dict"
+            return [
+                {"name": name, "value": value}
+                for name, value in payload.items()
+                if not isinstance(value, (dict, list))
+            ]
+
+        raise NaukriAuthError(f"{self.cookie_file} must contain a cookie list or object")
+
+    def _set_session_cookie(
+        self,
+        name,
+        value,
+        domain=DEFAULT_COOKIE_DOMAIN,
+        path="/",
+        expires=None,
+        secure=False,
+        http_only=False,
+        same_site="",
+    ):
+        try:
+            self.session.set_cookie(
+                name,
+                value,
+                domain=domain or DEFAULT_COOKIE_DOMAIN,
+                path=path or "/",
+                secure=bool(secure),
+                http_only=bool(http_only),
+                same_site="",
+            )
+            return
+        except Exception:
+            pass
+
+        kwargs = {}
+        if domain:
+            kwargs["domain"] = domain
+        if path:
+            kwargs["path"] = path
+        if expires is not None:
+            try:
+                kwargs["expires"] = int(expires)
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            self.session.cookies.set(name, value, **kwargs)
+            return
+        except Exception:
+            pass
+
+        try:
+            self.session.cookies.set(name, value)
+            return
+        except Exception:
+            pass
+
+        if isinstance(self.session.cookies, list):
+            for cookie in self.session.cookies:
+                if isinstance(cookie, dict) and (cookie.get("name") or cookie.get("key")) == name:
+                    cookie["value"] = value
+                    return
+            self.session.cookies.append({
+                "name": name,
+                "value": value,
+                "domain": domain or DEFAULT_COOKIE_DOMAIN,
+                "path": path or "/",
+            })
+            return
+
+        raise NaukriAuthError(f"Could not set cookie {name}")
+
+    def load_cookies(self):
+        if not os.path.exists(self.cookie_file):
+            raise NaukriAuthError(f"{self.cookie_file} not found")
+
+        try:
+            with open(self.cookie_file, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+        except json.JSONDecodeError as exc:
+            raise NaukriAuthError(f"{self.cookie_file} is not valid JSON: {exc}") from exc
+
+        self._cookie_payload = payload
+        records = self._normalise_cookie_records(payload)
+        loaded = 0
+
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+
+            name = record.get("name") or record.get("key")
+            value = record.get("value")
+            if not name or value is None:
+                continue
+
+            domain = record.get("domain") or record.get("host") or DEFAULT_COOKIE_DOMAIN
+            path = record.get("path") or "/"
+            expires = record.get("expires") or record.get("expirationDate")
+            secure = record.get("secure", False)
+            http_only = record.get("httpOnly", record.get("http_only", False))
+            same_site = record.get("sameSite") or record.get("same_site") or ""
+            self._set_session_cookie(
+                str(name),
+                str(value),
+                domain=domain,
+                path=path,
+                expires=expires,
+                secure=secure,
+                http_only=http_only,
+                same_site=same_site,
+            )
+            loaded += 1
+
+        if not loaded:
+            raise NaukriAuthError(f"{self.cookie_file} does not contain any usable cookies")
+
+        return loaded
+
+    def _session_cookie_records(self):
+        records = []
+
+        try:
+            iterator = list(self.session.cookies)
+        except Exception:
+            iterator = []
+
+        for cookie in iterator:
+            if isinstance(cookie, dict):
+                name = cookie.get("name") or cookie.get("key")
+                value = cookie.get("value")
+                domain = cookie.get("domain") or cookie.get("host") or DEFAULT_COOKIE_DOMAIN
+                path = cookie.get("path") or "/"
+                secure = cookie.get("secure")
+                http_only = cookie.get("httpOnly", cookie.get("http_only"))
+                expires = cookie.get("expires") or cookie.get("expirationDate")
+                same_site = cookie.get("sameSite") or cookie.get("same_site")
+            else:
+                name = getattr(cookie, "name", None)
+                value = getattr(cookie, "value", None)
+                domain = getattr(cookie, "domain", None) or DEFAULT_COOKIE_DOMAIN
+                path = getattr(cookie, "path", None) or "/"
+                secure = getattr(cookie, "secure", None)
+                http_only = getattr(cookie, "http_only", None)
+                expires = getattr(cookie, "expires", None)
+                same_site = getattr(cookie, "same_site", None)
+
+            if not name or value is None:
+                continue
+
+            record = {
+                "name": name,
+                "value": value,
+                "domain": domain,
+                "path": path,
+            }
+
+            if secure is not None:
+                record["secure"] = secure
+            if http_only is not None:
+                record["httpOnly"] = http_only
+            if expires:
+                record["expirationDate"] = expires
+            if same_site:
+                record["sameSite"] = same_site
+
+            records.append(record)
+
+        if records:
+            return records
+
+        try:
+            cookies = self.session.cookies.get_dict()
+        except Exception:
+            cookies = dict(self.session.cookies)
+
+        return [
+            {
+                "name": name,
+                "value": value,
+                "domain": DEFAULT_COOKIE_DOMAIN,
+                "path": "/",
+            }
+            for name, value in cookies.items()
+        ]
+
+    def _merge_cookie_records(self, original_records, current_records):
+        current_by_name = {
+            record["name"]: record
+            for record in current_records
+            if record.get("name")
+        }
+        seen = set()
+        merged = []
+
+        for original in original_records:
+            if not isinstance(original, dict):
+                continue
+
+            name = original.get("name") or original.get("key")
+            if not name:
+                continue
+
+            updated = dict(original)
+            current = current_by_name.get(name)
+            if current:
+                updated["name"] = name
+                updated["value"] = current["value"]
+                for key in ("domain", "path", "secure", "expirationDate"):
+                    if key in current:
+                        updated[key] = current[key]
+                seen.add(name)
+
+            merged.append(updated)
+
+        for record in current_records:
+            if record["name"] not in seen:
+                merged.append(record)
+
+        return merged
+
+    def save_cookies(self):
+        current_records = self._session_cookie_records()
+
+        if self._cookie_payload_shape == "dict":
+            payload = {
+                record["name"]: record["value"]
+                for record in current_records
+            }
+        elif self._cookie_payload_shape == "wrapped_list":
+            payload = dict(self._cookie_payload or {})
+            payload["cookies"] = self._merge_cookie_records(
+                self._cookie_payload.get("cookies", []),
+                current_records,
+            )
+        else:
+            payload = self._merge_cookie_records(
+                self._cookie_payload if isinstance(self._cookie_payload, list) else [],
+                current_records,
+            )
+
+        temp_path = f"{self.cookie_file}.tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+            f.write("\n")
+        os.replace(temp_path, self.cookie_file)
+
+    def get_cookies(self):
+        try:
+            return self.session.cookies.get_dict()
+        except Exception:
+            return {
+                record["name"]: record["value"]
+                for record in self._session_cookie_records()
+            }
+
+    def build_required_cookies(self):
+        cookies = self.get_cookies()
+        result = {
+            "test": "naukri.com",
+            "is_login": "1",
+        }
+
+        for key in ["nauk_rt", "nauk_sid", "MYNAUKRI[UNID]"]:
+            if cookies.get(key):
+                result[key] = cookies[key]
+
+        return result
+
+    def get_bearer_token(self):
+        return self._get_cookie_value("nauk_at")
 
     def login(self):
-        res = self._login_request()
-
-        if not res.ok:
-            print(res.content)
-            raise NaukriAuthError("Login failed")
-
-        token = self.session.cookies.get("nauk_at")
+        self.load_cookies()
+        token = self._get_cookie_value("nauk_at")
         if not token:
-            raise NaukriAuthError("No token")
+            raise NaukriAuthError(f"{self.cookie_file} does not contain nauk_at")
 
         self.naukri_session = NaukriSession(token, self.session.cookies)
 
         try:
-            self.cache["form_key"] = self.get_form_key2()
-        except Exception:
-            pass
+            self._verify_cookie_session()
+        except Exception as exc:
+            self.naukri_session = None
+            raise NaukriAuthError(f"Cookie login failed or expired: {exc}") from exc
 
+        refreshed_token = self._get_cookie_value("nauk_at")
+        if refreshed_token:
+            self.naukri_session.bearer_token = refreshed_token
+
+        self.save_cookies()
         return self.naukri_session
 
     # ------------------------------------------------------------------
-    # form_key helpers
+    # OTP helpers
     # ------------------------------------------------------------------
  
 
@@ -211,11 +508,6 @@ class NaukriLoginClient:
 
         self.naukri_session = NaukriSession(token, self.session.cookies)
 
-        try:
-            self.cache["form_key"] = self.get_form_key2()
-        except Exception:
-            pass
-
         return self.naukri_session
 
 
@@ -261,222 +553,23 @@ class NaukriLoginClient:
             return res.json()
         except Exception:
             return {}
-
-
-
-    @with_exponential_retry(label="get_form_key")
-    def _fetch_profile_html(self):
-        return self.session.get(PROFILE_URL)
-
-    @with_exponential_retry(label="get_js")
-    def _fetch_js(self, js_url):
-        return self.session.get(js_url)
-
-    def get_form_key(self):
-        if not self.naukri_session:
-            raise NaukriAuthError("Login first")
-
-        res = self._fetch_profile_html()
-        html = res.text
-
-        match = APP_JS_PATTERN.search(html)
-        if not match:
-            raise NaukriParseError("JS not found")
-
-        js_url = match.group(1)
-        if js_url.startswith("//"):
-            js_url = "https:" + js_url
-
-        js = self._fetch_js(js_url).text
-
-        for pattern in FORM_KEY_PATTERNS:
-            m = pattern.search(js)
-            if m:
-                return m.group(1)
-
-        raise NaukriParseError("form key not found")
-
-    @with_exponential_retry(label="get_profile_html_v2")
-    def _fetch_profile_html_auth(self):
-        return self.session.get(PROFILE_URL, headers=self._build_headers(auth=True))
-
-    def get_form_key2(self):
-        if not self.naukri_session:
-            raise NaukriAuthError("Login first")
-
-        if "form_key" in self.cache:
-            return self.cache["form_key"]
-
-        res = self._fetch_profile_html_auth()
-        html = res.text
-        js_urls = extract_all_js_urls(html)
-
-        for js_url in js_urls:
-            if "mnj" not in js_url:
-                continue
-            if js_url.startswith("//"):
-                js_url = "https:" + js_url
-            try:
-                js_content = self._fetch_js(js_url).text
-                key = extract_form_key2(js_content)
-                if key:
-                    self.cache["form_key"] = key
-                    return key
-            except Exception:
-                continue
-
-        try:
-            fallback_url = "https://static.naukimg.com/s/5/105/j/mnj_v299.min.js"
-            js_content = self._fetch_js(fallback_url).text
-            key = extract_form_key2(js_content)
-            if key:
-                self.cache["form_key"] = key
-                return key
-        except Exception:
-            pass
-
-        raise NaukriParseError("formKey2 not found")
-
-    # ------------------------------------------------------------------
-    # Profile ID
-    # ------------------------------------------------------------------
-
-    @with_exponential_retry(label="fetch_profile_id")
+    @with_exponential_retry(label="verify_session")
     def _fetch_dashboard(self):
         return self.session.get(DASHBOARD_URL, headers=self._build_headers(auth=True))
 
-    def fetch_profile_id(self):
-        if self.profile_id:
-            return self.profile_id
+    def _verify_cookie_session(self):
+        if self.account_id:
+            return self.account_id
 
         res = self._fetch_dashboard()
         data = res.json()
 
-        pid = data.get("profileId") or data.get("dashBoard", {}).get("profileId")
-        if not pid:
-            raise NaukriParseError("profile id missing")
+        account_id = data.get("profileId") or data.get("dashBoard", {}).get("profileId")
+        if not account_id:
+            raise NaukriParseError("account id missing")
 
-        self.profile_id = pid
-        return pid
-
-    # ------------------------------------------------------------------
-    # File validation / resume upload
-    # ------------------------------------------------------------------
-
-    @with_exponential_retry(label="validate_file")
-    def _validate_file_request(self, filename, file_bytes, form_key, file_key):
-        return requests.post(
-            FILE_VALIDATION_URL,
-            headers=UPLOAD_HEADERS,
-            files={"file": (filename, BytesIO(file_bytes), "application/pdf")},
-            data={
-                "formKey": form_key,
-                "fileName": filename,
-                "uploadCallback": "true",
-                "fileKey": file_key,
-            },
-        )
-
-    def validate_file(self, file):
-        if not self.naukri_session:
-            raise NaukriAuthError("Login first")
-
-        form_key = self.get_form_key2()
-        file_key = "U" + self.generate_file_key(13)
-
-        if isinstance(file, str):
-            filename = file.split("/")[-1]
-            with open(file, "rb") as f:
-                file_bytes = f.read()
-        else:
-            file_bytes = file.read()
-            filename = getattr(file, "name", "resume.pdf")
-
-        res = self._validate_file_request(filename, file_bytes, form_key, file_key)
-
-        if not res.ok:
-            print(res.request.headers.get("Content-Type"))
-            print(res.text)
-            raise NaukriUploadError("File validation failed")
-
-        try:
-            resp_json = res.json()
-        except Exception:
-            return [file_key, form_key]
-
-        if file_key not in resp_json:
-            return [next(iter(resp_json)), form_key]
-
-        return [file_key, form_key]
-
-    @with_exponential_retry(label="update_resume")
-    def _update_resume_request(self, url, headers, payload):
-        return self.session.post(url, headers=headers, json=payload)
-
-    def update_resume(self, resume_file):
-        pid = self.fetch_profile_id()
-        url = RESUME_UPDATE_URL_TEMPLATE.format(profile_id=pid)
-        file_key, form_key = self.validate_file(resume_file)
-
-        headers = self._build_headers(
-            auth=True,
-            extra={
-                "accept-encoding": "gzip, deflate, br, zstd",
-                "accept-language": "en-US,en;q=0.9",
-                "content-type": "application/json",
-                "origin": "https://www.naukri.com",
-                "referer": "https://www.naukri.com/mnjuser/profile",
-                "systemid": "105",
-                "x-http-method-override": "PUT",
-            },
-        )
-
-        payload = {"textCV": {"formKey": form_key, "fileKey": file_key}}
-        res = self._update_resume_request(url, headers, payload)
-        return ResumeUpdateResult(pid, res.json(), res.status_code)
-
-    # ------------------------------------------------------------------
-    # Profile update
-    # ------------------------------------------------------------------
-
-    @with_exponential_retry(label="update_profile")
-    def _update_profile_request(self, headers, payload):
-        return self.session.post(PROFILE_UPDATE_URL, headers=headers, json=payload)
-
-    def update_profile(self, headline: str = None, name: str = None, summary: str = None):
-        pid = self.fetch_profile_id()
-
-        headers = self._build_headers(
-            auth=True,
-            extra={
-                "accept-encoding": "gzip, deflate, br, zstd",
-                "accept-language": "en-US,en;q=0.9",
-                "origin": "https://www.naukri.com",
-                "referer": "https://www.naukri.com/mnjuser/profile?id=&altresid",
-                "systemid": "105",
-                "x-http-method-override": "PUT",
-                "x-requested-with": "XMLHttpRequest",
-            },
-        )
-
-        profile_fields = {}
-        if headline is not None:
-            profile_fields["resumeHeadline"] = headline
-        if name is not None:
-            profile_fields["name"] = name
-        if summary is not None:
-            profile_fields["summary"] = summary
-
-        if not profile_fields:
-            raise ValueError("At least one field must be provided")
-
-        payload = {"profile": profile_fields, "profileId": pid}
-        res = self._update_profile_request(headers, payload)
-        return ProfileUpdateResult(pid, res.json(), res.status_code)
-    
-
-
-       
+        self.account_id = account_id
+        return account_id
 
     @with_exponential_retry(label="fetch_history")
     def _fetch_history_request(self, page_size, days, page_number, mobile=False):
@@ -521,15 +614,6 @@ class NaukriLoginClient:
             raise NaukriParseError(f"Failed to fetch history: {res.status_code}")
 
         return res.json()
-
-    # ------------------------------------------------------------------
-    # Utilities
-    # ------------------------------------------------------------------
-    
-    def generate_file_key(self, length):
-        chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        return "".join(random.choice(chars) for _ in range(length))
-    
 
     def parse_history(self, raw: dict) -> list[ApplicationHistory]:
         results = []

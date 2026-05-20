@@ -31,13 +31,3 @@ class NaukriParseError(NaukriClientError):
         if response_snippet:
             msg += f" | Response: {response_snippet[:200]}"
         super().__init__(msg)
-
-
-class NaukriUploadError(NaukriClientError):
-    """Resume / file upload failures."""
-
-    def __init__(self, message="Upload failed", filename=None):
-        msg = f"[UPLOAD ERROR] {message}"
-        if filename:
-            msg += f" | File: {filename}"
-        super().__init__(msg)
