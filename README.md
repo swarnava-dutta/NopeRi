@@ -68,6 +68,10 @@ Plain Python agent flow:
 6. `ExternalLinkAgent` documents company-site apply links in `external_jobs.csv`
 7. Applied job IDs are saved to `applied_jobs.csv`
 
+When a job has questionnaire questions, the applied row stores a
+`questionnaire_answers` JSON array with `question_id`, `question`, `answer`,
+and `raw_answer`.
+
 Runtime logs use readable status symbols:
 
 - `✅ Applied`

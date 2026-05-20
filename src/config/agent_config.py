@@ -13,7 +13,7 @@ EXTERNAL_JOBS_CSV = "external_jobs.csv"
 
 # Set RUN_RECOMMENDED_PHASE=False to skip recommended jobs and go straight to
 # configured search terms.
-RUN_RECOMMENDED_PHASE = True
+RUN_RECOMMENDED_PHASE = False
 RUN_SEARCH_PHASE = True
 DOCUMENT_EXTERNAL_LINKS = True
 

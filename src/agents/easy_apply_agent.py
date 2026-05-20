@@ -71,9 +71,10 @@ class EasyApplyAgent:
             )
 
             job_result = (result.get("jobs") or [{}])[0]
+            questionnaire_answers = []
             if job_result.get("questionnaire"):
                 sid = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "0000000"
-                self.job_client.handle_static_questionnaire_and_apply(
+                questionnaire_result = self.job_client.handle_static_questionnaire_and_apply(
                     job,
                     questionnaire=job_result["questionnaire"],
                     sid=sid,
@@ -81,8 +82,12 @@ class EasyApplyAgent:
                     optional_skills=optional,
                     source=source,
                 )
+                questionnaire_answers = questionnaire_result.get("_questionnaire_answers") or []
+                if questionnaire_result.get("success") is False:
+                    error = questionnaire_result.get("error") or "unknown questionnaire error"
+                    raise RuntimeError(f"Questionnaire apply failed: {error}")
 
-            save_applied_job(job)
+            save_applied_job(job, questionnaire_answers=questionnaire_answers)
             self.applied_job_ids.add(job.job_id)
             stats["applied"] += 1
             print(f"✅ Applied: {label_text}")
@@ -90,4 +95,3 @@ class EasyApplyAgent:
         except Exception as exc:
             stats["failed"] += 1
             print(f"⚠️ Failed: {label_text} | {exc}")
-

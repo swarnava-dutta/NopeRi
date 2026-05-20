@@ -430,7 +430,27 @@ class NaukriJobClient:
 
             return answers
 
+        def format_answer(question: dict, answer):
+            options = question.get("answerOption") or {}
+            if isinstance(answer, list):
+                return [options.get(str(item), str(item)) for item in answer]
+            return options.get(str(answer), answer)
+
+        def build_questionnaire_records(questionnaire: list, answers: dict) -> list[dict]:
+            records = []
+            for question in questionnaire:
+                question_id = question.get("questionId")
+                answer = answers.get(question_id)
+                records.append({
+                    "question_id": question_id,
+                    "question": question.get("questionName") or "",
+                    "answer": format_answer(question, answer),
+                    "raw_answer": answer,
+                })
+            return records
+
         answers = build_smart_answers(questionnaire, profile)
+        questionnaire_records = build_questionnaire_records(questionnaire, answers)
         logger.debug("Generated answers: %s", answers)
 
         apply_src, logstr_template = APPLY_SRC_MAP.get(source, APPLY_SRC_MAP["recommended"])
@@ -457,12 +477,21 @@ class NaukriJobClient:
 
         if not res.ok:
             logger.debug("Apply failed: %s", res.text)
-            return {"success": False, "error": res.text}
+            return {
+                "success": False,
+                "error": res.text,
+                "_questionnaire_answers": questionnaire_records,
+            }
 
         try:
-            return res.json()
+            parsed_result = res.json()
         except Exception:
-            return {"success": False, "error": "Invalid JSON response"}
+            result = {"success": False, "error": "Invalid JSON response"}
+        else:
+            result = parsed_result if isinstance(parsed_result, dict) else {"response": parsed_result}
+
+        result["_questionnaire_answers"] = questionnaire_records
+        return result
 
     # ----------------------------------------------------------------------------------
     # Recommended jobs
