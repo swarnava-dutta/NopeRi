@@ -562,7 +562,22 @@ class NaukriLoginClient:
             return self.account_id
 
         res = self._fetch_dashboard()
-        data = res.json()
+        if not res.ok:
+            raise NaukriAuthError(f"session verify failed with HTTP {res.status_code}")
+
+        try:
+            data = res.json()
+        except Exception as exc:
+            content_type = ""
+            try:
+                content_type = res.headers.get("content-type", "")
+            except Exception:
+                pass
+            raise NaukriAuthError(
+                "session verify returned a non-JSON response "
+                f"(HTTP {res.status_code}, content-type: {content_type or 'unknown'}). "
+                "The saved cookies are expired, IP-bound to another connection, or blocked by Naukri."
+            ) from exc
 
         account_id = data.get("profileId") or data.get("dashBoard", {}).get("profileId")
         if not account_id:
