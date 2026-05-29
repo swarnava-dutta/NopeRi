@@ -16,6 +16,12 @@ logger.addHandler(_handler)
 
 DEFAULT_COOKIE_FILE = "cookies.json"
 DEFAULT_COOKIE_DOMAIN = ".naukri.com"
+COOKIE_REFRESH_URLS = (
+    "https://www.naukri.com/mnjuser/profile",
+    "https://www.naukri.com/mnjuser/recommendedjobs",
+    "https://www.naukri.com/",
+)
+COOKIE_EXPIRY_SKEW_SECONDS = 300
 
 
 # ------------------------------------------------------------------
@@ -112,6 +118,20 @@ class NaukriLoginClient:
             headers.update(extra)
         return headers
 
+    def _build_web_headers(self):
+        return {
+            "accept": (
+                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                "image/avif,image/webp,image/apng,*/*;q=0.8"
+            ),
+            "referer": "https://www.naukri.com/",
+            "sec-ch-ua": "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "upgrade-insecure-requests": "1",
+            "user-agent": OTP_HEADERS["user-agent"],
+        }
+
     # ------------------------------------------------------------------
     # Login
     # ------------------------------------------------------------------
@@ -145,6 +165,28 @@ class NaukriLoginClient:
             return self.session.cookies.get_dict().get(name)
         except Exception:
             return None
+
+    def _get_cookie_expiry(self, name):
+        for record in self._session_cookie_records():
+            if record.get("name") != name:
+                continue
+
+            expires = record.get("expirationDate") or record.get("expires")
+            if not expires:
+                return None
+
+            try:
+                return float(expires)
+            except (TypeError, ValueError):
+                return None
+
+        return None
+
+    def _cookie_expires_soon(self, name, skew_seconds=COOKIE_EXPIRY_SKEW_SECONDS):
+        expires = self._get_cookie_expiry(name)
+        if not expires:
+            return False
+        return expires <= time.time() + skew_seconds
 
     def _normalise_cookie_records(self, payload):
         if isinstance(payload, list):
@@ -402,6 +444,30 @@ class NaukriLoginClient:
             f.write("\n")
         os.replace(temp_path, self.cookie_file)
 
+    def _fetch_cookie_refresh_page(self, url):
+        return self.session.get(url, headers=self._build_web_headers())
+
+    def _has_usable_access_cookie(self):
+        return bool(self._get_cookie_value("nauk_at")) and not self._cookie_expires_soon("nauk_at")
+
+    def _refresh_cookie_session(self):
+        before = self._get_cookie_value("nauk_at")
+
+        for url in COOKIE_REFRESH_URLS:
+            try:
+                res = self._fetch_cookie_refresh_page(url)
+            except Exception:
+                continue
+
+            if res.status_code in (401, 403):
+                continue
+
+            after = self._get_cookie_value("nauk_at")
+            if after and (after != before or self._has_usable_access_cookie()):
+                return True
+
+        return self._has_usable_access_cookie()
+
     def get_cookies(self):
         try:
             return self.session.cookies.get_dict()
@@ -430,16 +496,33 @@ class NaukriLoginClient:
     def login(self):
         self.load_cookies()
         token = self._get_cookie_value("nauk_at")
-        if not token:
-            raise NaukriAuthError(f"{self.cookie_file} does not contain nauk_at")
+        if not token or self._cookie_expires_soon("nauk_at"):
+            self._refresh_cookie_session()
+            token = self._get_cookie_value("nauk_at")
+
+        if not token or self._cookie_expires_soon("nauk_at"):
+            raise NaukriAuthError(
+                f"{self.cookie_file} does not contain a usable nauk_at. "
+                "Export fresh browser cookies or verify OTP once, then rerun."
+            )
 
         self.naukri_session = NaukriSession(token, self.session.cookies)
 
         try:
             self._verify_cookie_session()
         except Exception as exc:
-            self.naukri_session = None
-            raise NaukriAuthError(f"Cookie login failed or expired: {exc}") from exc
+            self._refresh_cookie_session()
+            refreshed_token = self._get_cookie_value("nauk_at")
+            if refreshed_token and refreshed_token != token:
+                self.naukri_session = NaukriSession(refreshed_token, self.session.cookies)
+                try:
+                    self._verify_cookie_session()
+                except Exception as retry_exc:
+                    self.naukri_session = None
+                    raise NaukriAuthError(f"Cookie login failed or expired: {retry_exc}") from retry_exc
+            else:
+                self.naukri_session = None
+                raise NaukriAuthError(f"Cookie login failed or expired: {exc}") from exc
 
         refreshed_token = self._get_cookie_value("nauk_at")
         if refreshed_token:
@@ -507,6 +590,7 @@ class NaukriLoginClient:
             raise NaukriAuthError("OTP verified but no auth token received")
 
         self.naukri_session = NaukriSession(token, self.session.cookies)
+        self.save_cookies()
 
         return self.naukri_session
 
