@@ -1,0 +1,4 @@
+status=SUCCESS
+message=Noperi completed successfully
+updated_at=03-06-2026  0:30:16.24
+log_file=H:\NAUKRI\NopeRi (Fork - Job Apply)(API)\logs\noperi_hidden.log
