@@ -14,6 +14,14 @@ class EasyApplyAgent:
         self.external_link_agent = external_link_agent
         self.applied_job_ids = load_job_ids(config.APPLIED_JOBS_CSV)
 
+    @staticmethod
+    def _is_blocked_company(job) -> bool:
+        company = (job.company or "").lower()
+        return any(
+            blocked in company
+            for blocked in getattr(config, "BLOCKED_COMPANIES", [])
+        )
+
     def run(self, jobs: list, source: str, label: str, daily_remaining: int) -> dict:
         stats = empty_stats(found=len(jobs))
 
@@ -26,6 +34,9 @@ class EasyApplyAgent:
             if job.job_id in self.applied_job_ids:
                 stats["skipped_applied"] += 1
                 print(f"⏭️ Already applied: {job_label(job)}")
+            elif self._is_blocked_company(job):
+                stats["skipped_blocked"] += 1
+                print(f"🚫 Blocked company: {job_label(job)}")
             else:
                 pending_jobs.append(job)
 

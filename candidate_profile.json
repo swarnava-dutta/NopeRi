@@ -1,0 +1,35 @@
+{
+    "current_ctc": "4050000",
+    "expected_ctc": "5500000",
+    "exp_total": "6",
+    "exp_ai": "4",
+    "notice_days": 30,
+    "current_location": "Kolkata",
+    "phone": "7478893810",
+    "email": "swarnavadutta.official@gmail.com",
+    "linkedin_url": "https://www.linkedin.com/in/swarnava-dutta/",
+    "github_url": "https://github.com/swarnava-dutta/",
+    "highest_qualification": "Bachelor's degree",
+    "graduation_year": "2020",
+    "has_masters": false,
+    "has_postgraduation": false,
+    "tcs_registration_email": "swarnava.dutta97@gmail.com",
+    "tcs_ep_number": "EP2018CN193377",
+    "location_preference": [
+        "Hyderabad",
+        "Bangalore"
+    ],
+    "skills": [
+        "RAG",
+        "docker",
+        "kubernetes",
+        "Azure",
+        "ci/cd",
+        "MCP",
+        "Agentic AI",
+        "Langchain",
+        "Langgraph",
+        "Python",
+        "SQL"
+    ]
+}

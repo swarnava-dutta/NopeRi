@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import datetime
 
 from src.models.models import Job
@@ -8,6 +9,7 @@ from src.utils.request_helper import with_exponential_retry
 from src.utils.nkparam_generator import generate_nkparam
 from src.config.constants import RECOMMENDED_JOBS_URL, JOB_SEARCH_URL, APPLY_JOB_URL
 from src.config import agent_config as config
+from src.utils.ai_answer import ai_text_answer, ai_option_answer
 import json
 
 
@@ -375,17 +377,72 @@ class NaukriJobClient:
                         return k
                 return list(options.keys())[0]
 
+            def pick_no(options: dict) -> str:
+                # Prefer any option whose label contains "no" (but not "know"
+                # / "notice"), falling back to the last option.
+                for k, v in options.items():
+                    label = v.lower().strip()
+                    if label == "no" or label.startswith("no,") or label.startswith("no "):
+                        return k
+                for k, v in options.items():
+                    if "no" in v.lower() and "know" not in v.lower():
+                        return k
+                return list(options.keys())[-1]
+
             def pick_notice(options: dict, notice_days: int) -> str:
                 # Match the closest notice period bucket to notice_days.
                 for k, v in options.items():
                     val = v.lower()
+                    if ("immediate" in val or "0 day" in val) and notice_days <= 0:
+                        return k
                     if "15" in val and notice_days <= 15:
                         return k
-                    if "1 month" in val and notice_days <= 30:
+                    if ("30 day" in val or "30 days" in val or "1 month" in val or "one month" in val) \
+                            and notice_days <= 30:
                         return k
-                    if "2 month" in val and notice_days <= 60:
+                    if ("45" in val or "60 day" in val or "2 month" in val or "two month" in val) \
+                            and notice_days <= 60:
+                        return k
+                    if ("90" in val or "3 month" in val or "three month" in val) \
+                            and notice_days <= 90:
                         return k
                 return list(options.keys())[0]
+
+            def notice_text_answer(qtext: str, notice_days: int) -> str:
+                # Answer notice/joining questions in the unit the question asks for.
+                if "month" in qtext:
+                    return str(max(1, round(notice_days / 30)))
+                if "week" in qtext:
+                    return str(max(1, round(notice_days / 7)))
+                # Default / explicit "days"
+                return str(notice_days)
+
+            no_hints = getattr(config, "NO_QUESTION_HINTS", [])
+            relocation_hints = getattr(config, "RELOCATION_HINTS", ["reloc"])
+            ai_terms = getattr(config, "AI_EXPERIENCE_TERMS", [])
+
+            def is_ai_related(qtext: str) -> bool:
+                # Word-boundary match so short terms like "ai"/"ml" don't hit
+                # inside words like "email", "main", or "html".
+                for term in ai_terms:
+                    if re.search(rf"(?<![a-z0-9]){re.escape(term)}(?![a-z0-9])", qtext):
+                        return True
+                return False
+
+            def is_joining_question(qtext: str) -> bool:
+                # "notice period" is always a joining-time question. For
+                # join/onboard wording, also require a time-ish word so
+                # "Why do you want to join us?" is NOT matched.
+                if "notice" in qtext:
+                    return True
+                join_words = ("join", "onboard", "start date", "date of joining")
+                time_words = (
+                    "how soon", "when", "day", "week", "month",
+                    "immediate", "early", "soon", "time",
+                )
+                return any(j in qtext for j in join_words) and any(
+                    t in qtext for t in time_words
+                )
 
             for q in questionnaire:
                 qid   = q["questionId"]
@@ -393,38 +450,86 @@ class NaukriJobClient:
                 qtype = (q.get("questionType") or "").lower()
                 options = q.get("answerOption") or {}
 
+                # Hard rules that apply regardless of question type:
+                #   - "worked here before / applied earlier" style → always No
+                #   - relocation questions → always Yes
+                #   - masters / postgraduation → always No (candidate has none)
+                is_no_question = any(h in qtext for h in no_hints)
+                is_relocation = any(h in qtext for h in relocation_hints)
+                is_masters_q = any(
+                    h in qtext
+                    for h in ("master", "post graduat", "postgraduat", "post-graduat",
+                              "pg degree", "m.tech", "mtech", "m.sc", "msc", "mba", "phd")
+                )
+
                 if qtype == "text box":
-                    if "current ctc" in qtext:
+                    if is_no_question or is_masters_q:
+                        ans = "No"
+                    elif is_relocation:
+                        ans = "Yes"
+                    elif "linkedin" in qtext:
+                        ans = profile.get("linkedin_url", "")
+                    elif "github" in qtext or "git hub" in qtext:
+                        ans = profile.get("github_url", "")
+                    elif "phone" in qtext or "mobile" in qtext or "contact number" in qtext:
+                        ans = profile.get("phone", "")
+                    elif "current location" in qtext or "current city" in qtext \
+                            or "where are you" in qtext or "based out of" in qtext \
+                            or "residing" in qtext or ("location" in qtext and "preferred" not in qtext):
+                        ans = profile.get("current_location", "")
+                    elif "current ctc" in qtext:
                         ans = profile["current_ctc"]
                     elif "expected ctc" in qtext:
                         ans = profile["expected_ctc"]
                     elif "experience" in qtext:
-                        if "node" in qtext:
-                            ans = profile["exp_node"]
-                        elif "python" in qtext:
-                            ans = profile["exp_python"]
+                        # AI-related experience → exp_ai (4 yrs);
+                        # everything else → exp_total (6 yrs).
+                        if is_ai_related(qtext):
+                            ans = profile["exp_ai"]
                         else:
                             ans = profile["exp_total"]
-                    elif "notice" in qtext:
-                        ans = str(profile["notice_days"])
+                    elif is_joining_question(qtext):
+                        # Notice period / joining time, in the unit asked
+                        # (days by default, converted for months/weeks).
+                        ans = notice_text_answer(qtext, profile["notice_days"])
                     else:
-                        ans = config.DEFAULT_TEXTBOX_ANSWER
+                        # Not covered by fixed rules — let Claude answer it.
+                        ans = ai_text_answer(q.get("questionName") or "") \
+                            or config.DEFAULT_TEXTBOX_ANSWER
 
                 else:
                     if options:
-                        if "notice" in qtext:
+                        if is_no_question or is_masters_q:
+                            key = pick_no(options)
+                        elif is_relocation:
+                            key = pick_yes(options)
+                        elif is_joining_question(qtext):
                             key = pick_notice(options, profile["notice_days"])
-                        elif any(skill in qtext for skill in profile_skills):
-                            key = pick_yes(options)
-                        elif any(x in qtext for x in config.YES_QUESTION_HINTS):
-                            key = pick_yes(options)
                         else:
-                            key = list(options.keys())[0]
+                            # Everything else: the LLM decides which option
+                            # maximizes screening success. Only if the AI is
+                            # off/fails do we fall back to heuristics.
+                            key = ai_option_answer(
+                                q.get("questionName") or "", options
+                            )
+                            if key is None:
+                                if any(skill in qtext for skill in profile_skills):
+                                    key = pick_yes(options)
+                                elif any(x in qtext for x in config.YES_QUESTION_HINTS):
+                                    key = pick_yes(options)
+                                else:
+                                    key = list(options.keys())[0]
 
                         # Option-type answers must always be wrapped in a list.
                         ans = [key]
                     else:
-                        ans = config.DEFAULT_TEXTBOX_ANSWER
+                        if is_no_question or is_masters_q:
+                            ans = "No"
+                        elif is_relocation:
+                            ans = "Yes"
+                        else:
+                            ans = ai_text_answer(q.get("questionName") or "") \
+                                or config.DEFAULT_TEXTBOX_ANSWER
 
                 answers[qid] = ans
 

@@ -2,7 +2,19 @@
 
 Change this file for search targets, candidate profile, filtering rules, and
 apply-time defaults. Keep API endpoint constants in constants.py.
+
+The candidate profile (CTC, experience, links, location, education, skills)
+lives in ``candidate_profile.json`` at the repo root — edit that file to
+change answers; no code change needed.
 """
+
+import json
+import os
+
+_PROFILE_JSON = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "candidate_profile.json",
+)
 
 # ---------------------------------------------------------------------------
 # Search and run settings
@@ -28,7 +40,7 @@ SEARCH_QUERIES = [
 
 EXPERIENCE_LEVELS = [5]
 SEARCH_PAGES = 1
-JOB_AGE_DAYS = 2
+JOB_AGE_DAYS = 1
 SEARCH_DELAY_SECONDS = 1.2
 SEARCH_ERROR_DELAY_SECONDS = 3
 APPLY_DELAY_SECONDS = 3
@@ -42,6 +54,14 @@ DAILY_APPLY_LIMIT = 50
 APPLY_TYPE_ID = "107"
 MANDATORY_SKILL_COUNT = 2
 
+# Never apply to companies whose name contains any of these strings
+# (case-insensitive substring match against the job's company name).
+BLOCKED_COMPANIES = [
+    "teksystems",
+    "tek systems",
+    "allegis",
+]
+
 APPLY_PAYLOAD_DEFAULTS = {
     "flowtype": "show",
     "crossdomain": True,
@@ -52,24 +72,138 @@ APPLY_PAYLOAD_DEFAULTS = {
     "mid": "",
 }
 
-QUESTIONNAIRE_PROFILE = {
-    "current_ctc": "4050000",
-    "expected_ctc": "5500000",
-    "exp_total": "5",
-    "exp_node": "5",
-    "exp_python": "5",
+# Structural fallback used ONLY if candidate_profile.json is missing/broken
+# or a key is absent from it. candidate_profile.json is the single source of
+# truth for all personal details — do NOT duplicate real values here. These
+# neutral defaults just guarantee every key exists so the agent never crashes.
+_PROFILE_FALLBACK = {
+    "current_ctc": "",
+    "expected_ctc": "",
+    "exp_total": "0",
+    "exp_ai": "0",
     "notice_days": 30,
-    "skills": [
-        "RAG",
-        "docker",
-        "kubernetes",
-        "Azure",
-        "ci/cd",
-        "Agentic AI",
-        "Langchain",
-        "Langgraph",
-    ],
+    "current_location": "",
+    "phone": "",
+    "email": "",
+    "linkedin_url": "",
+    "github_url": "",
+    "highest_qualification": "Bachelor's degree",
+    "graduation_year": "",
+    "has_masters": False,
+    "has_postgraduation": False,
+    "tcs_registration_email": "",
+    "tcs_ep_number": "",
+    "location_preference": [],
+    "skills": [],
 }
 
+
+def _load_profile() -> dict:
+    try:
+        with open(_PROFILE_JSON, encoding="utf-8") as f:
+            data = json.load(f)
+        # Merge over the fallback so missing keys never crash the agent.
+        merged = {**_PROFILE_FALLBACK, **data}
+        return merged
+    except Exception:
+        return dict(_PROFILE_FALLBACK)
+
+
+QUESTIONNAIRE_PROFILE = _load_profile()
+
 DEFAULT_TEXTBOX_ANSWER = "1"
+
+# Questions matching these hints are ALWAYS answered "No" (checked before
+# anything else). e.g. "Have you worked here before?", "Have you applied to
+# this company earlier?", "Are you an ex-employee?"
+NO_QUESTION_HINTS = [
+    "worked here",
+    "worked with us",
+    "worked at this",
+    "worked for this",
+    "worked in this",
+    "previously worked",
+    "previously employed",
+    "previously associated",
+    "ex-employee",
+    "ex employee",
+    "former employee",
+    "applied before",
+    "applied earlier",
+    "applied to this",
+    "applied for this",
+    "applied with us",
+    "applied here",
+    "interviewed before",
+    "interviewed earlier",
+    "interviewed with us",
+    "interviewed here",
+    "relatives",
+    "criminal",
+    # Face-to-face / in-person interview questions → always No
+    "f2f",
+    "face to face",
+    "face-to-face",
+    "in person interview",
+    "in-person interview",
+    "walk-in",
+    "walkin",
+]
+
+# Questions matching these hints are ALWAYS answered "Yes".
+RELOCATION_HINTS = [
+    "reloc",  # relocate / relocation / relocating
+    "willing to move",
+    "willing to shift",
+    "move to",
+    "shift to",
+]
+
+# Fallback-only hints: used to pick "Yes" when the AI is disabled or fails.
 YES_QUESTION_HINTS = ["do you", "have you", "experience"]
+
+# Experience questions mentioning any of these terms (word-boundary matched)
+# are answered with QUESTIONNAIRE_PROFILE["exp_ai"] years.
+AI_EXPERIENCE_TERMS = [
+    "ai",
+    "a.i",
+    "artificial intelligence",
+    "gen ai",
+    "genai",
+    "generative",
+    "llm",
+    "llms",
+    "rag",
+    "machine learning",
+    "ml",
+    "deep learning",
+    "nlp",
+    "agentic",
+    "langchain",
+    "langgraph",
+    "llamaindex",
+    "prompt engineering",
+    "mcp",
+    "data science",
+    "chatbot",
+    "openai",
+]
+
+
+# ---------------------------------------------------------------------------
+# AI answer fallback (Claude)
+# ---------------------------------------------------------------------------
+# When a questionnaire question is not covered by the fixed rules above,
+# Claude answers it using QUESTIONNAIRE_PROFILE as context.
+# Requires ANTHROPIC_API_KEY in the environment / .env file.
+# If the key is missing or the API fails, the agent silently falls back to
+# DEFAULT_TEXTBOX_ANSWER / first-option behaviour.
+
+USE_AI_ANSWERS = True
+AI_MODEL = "claude-haiku-4-5"
+AI_MAX_TOKENS = 300
+AI_TIMEOUT_SECONDS = 20
+# Disable AI for the rest of the run after this many consecutive API failures.
+AI_MAX_FAILURES = 3
+# Optional extra free-text context for the AI (education, city, work auth, etc.)
+AI_ANSWER_CONTEXT = ""
