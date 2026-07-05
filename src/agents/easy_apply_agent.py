@@ -1,9 +1,7 @@
-from datetime import datetime
-import time
-
 from src.agents.job_store import load_job_ids, save_applied_job
 from src.agents.job_utils import empty_stats, job_label
 from src.config import agent_config as config
+from src.utils import humanizer
 
 
 class EasyApplyAgent:
@@ -51,8 +49,18 @@ class EasyApplyAgent:
                 print("🛑 Daily apply limit reached.")
                 break
 
+            # Abort the run entirely if the server keeps pushing back —
+            # continuing turns a soft block into a real ban.
+            if humanizer.PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT:
+                print("🛑 Too many server blocks this run — stopping to protect the account.")
+                break
+
             self._apply_one(job, source, stats)
-            time.sleep(config.APPLY_DELAY_SECONDS)
+
+            # Randomized human-like pause between applies, plus occasional
+            # long "walked away" breaks.
+            humanizer.human_delay(config.APPLY_DELAY_MIN_SECONDS, config.APPLY_DELAY_MAX_SECONDS)
+            humanizer.maybe_long_break()
 
         return stats
 
@@ -65,6 +73,9 @@ class EasyApplyAgent:
                 self.external_link_agent.document(job, source)
                 print(f"❌ External link: {label_text}")
                 return
+
+            # Human "reads" the job description before hitting apply.
+            humanizer.reading_pause()
 
             mandatory = job.tags[:config.MANDATORY_SKILL_COUNT] if job.tags else []
             optional = (
@@ -84,7 +95,9 @@ class EasyApplyAgent:
             job_result = (result.get("jobs") or [{}])[0]
             questionnaire_answers = []
             if job_result.get("questionnaire"):
-                sid = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "0000000"
+                # Humans take time to fill in a questionnaire.
+                humanizer.human_delay(2.0, 8.0)
+                sid = humanizer.generate_sid()
                 questionnaire_result = self.job_client.handle_static_questionnaire_and_apply(
                     job,
                     questionnaire=job_result["questionnaire"],

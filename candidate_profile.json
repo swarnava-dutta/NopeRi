@@ -30,6 +30,9 @@
         "Langchain",
         "Langgraph",
         "Python",
-        "SQL"
+        "SQL",
+        "Pyspark",
+        "Power BI",
+        "Databricks"
     ]
 }

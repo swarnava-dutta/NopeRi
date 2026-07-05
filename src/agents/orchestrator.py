@@ -8,6 +8,7 @@ from src.agents.search_term_agent import SearchTermApplyAgent
 from src.client.job_client import NaukriJobClient
 from src.client.naukri_client import NaukriLoginClient
 from src.config import agent_config as config
+from src.utils import humanizer
 
 
 class NaukriApplyOrchestrator:
@@ -16,14 +17,24 @@ class NaukriApplyOrchestrator:
     def __init__(self) -> None:
         self.seen_job_ids = set()
         self.totals = empty_stats()
+        # Jitter the daily limit so the account doesn't apply to exactly
+        # the same number of jobs every single day (a strong bot signal).
+        self.daily_limit = humanizer.jitter_int(config.DAILY_APPLY_LIMIT, config.DAILY_LIMIT_JITTER)
 
     def run(self) -> None:
         self._configure_output()
+
+        # Randomized warm-up so scheduled runs never hit Naukri at the
+        # exact same second every day.
+        humanizer.session_warmup()
 
         print("🔐 Logging in...")
         login_client = NaukriLoginClient()
         login_client.login()
         print("✅ Login successful")
+
+        if self.daily_limit != config.DAILY_APPLY_LIMIT:
+            print(f"🎲 Daily limit jittered: {config.DAILY_APPLY_LIMIT} → {self.daily_limit}")
 
         job_client = NaukriJobClient(login_client)
         external_link_agent = ExternalLinkAgent()
@@ -50,10 +61,24 @@ class NaukriApplyOrchestrator:
             print("\n⏭️ Search phase skipped by config.")
             return
 
-        for query in config.SEARCH_QUERIES:
+        # Shuffle query order each run so the request sequence is never
+        # identical between runs.
+        queries = config.SEARCH_QUERIES
+        if config.SHUFFLE_SEARCH_QUERIES:
+            queries = humanizer.shuffled(queries)
+
+        for index, query in enumerate(queries):
             if self._daily_remaining() <= 0:
                 print("🛑 Daily apply limit reached. Stopping search.")
                 break
+
+            if humanizer.PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT:
+                print("🛑 Too many server blocks this run — aborting to protect the account.")
+                break
+
+            # Randomized pause between search terms (skip before first one).
+            if index > 0:
+                humanizer.human_delay(config.QUERY_DELAY_MIN_SECONDS, config.QUERY_DELAY_MAX_SECONDS)
 
             search_agent = SearchTermApplyAgent(
                 job_client=job_client,
@@ -64,7 +89,7 @@ class NaukriApplyOrchestrator:
             add_stats(self.totals, search_agent.run(self._daily_remaining()))
 
     def _daily_remaining(self) -> int:
-        return config.DAILY_APPLY_LIMIT - self.totals["applied"]
+        return self.daily_limit - self.totals["applied"]
 
     def _print_summary(self) -> None:
         print("\n📊 Run summary")

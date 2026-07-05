@@ -1,18 +1,29 @@
-import logging
+"""Cookie-based login client for Naukri.
+
+IP / HOSTING NOTE: Naukri fingerprints the IP of every login and API request.
+Datacenter IPs (Azure, GitHub Actions, most GCP) get MFA-challenged or banned
+on sight. Run from a residential IP, mobile hotspot, or clean residential
+proxy. The bearer token and cookies are tied to the login IP — switching IPs
+mid-session invalidates the session.
+"""
+
 import json
+import logging
 import os
 import time
-import functools
+
 from src.client.session import build_session
-from src.config.constants import *
-from src.exceptions.exceptions import *
-from src.models.models import *
+from src.config.constants import (
+    DASHBOARD_URL,
+    HISTORY_URL,
+    OTP_SEND_URL,
+    OTP_VERIFY_URL,
+)
+from src.exceptions.exceptions import NaukriAuthError, NaukriParseError
+from src.models.models import ApplicationHistory, ApplicationStatus, NaukriSession
 from src.utils.request_helper import with_exponential_retry
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
-_handler = logging.StreamHandler()
-_handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-8s  %(message)s", datefmt="%H:%M:%S"))
-logger.addHandler(_handler)
 
 DEFAULT_COOKIE_FILE = "cookies.json"
 DEFAULT_COOKIE_DOMAIN = ".naukri.com"
@@ -22,52 +33,6 @@ COOKIE_REFRESH_URLS = (
     "https://www.naukri.com/",
 )
 COOKIE_EXPIRY_SKEW_SECONDS = 300
-
-
-# ------------------------------------------------------------------
-# IMPORTANT — IP / HOSTING ADVICE (read before deploying)
-#################################
-# Naukri actively fingerprints the IP of every login and API request.
-# Through testing, certain hosting environments consistently trigger
-# MFA challenges or outright bans:
-#
-#   AVOID:
-#     - Microsoft Azure (any region)     → flagged heavily, MFA on first req
-#     - GitHub Actions / CI runners      → Azure-backed IPs, same result
-#     - Google Cloud (some regions)      → increasingly flagged
-#     - Any datacenter IP on known CIDR  → Naukri blocks entire ranges
-#
-#   WORKS RELIABLY:
-#     - AWS (residential NAT gateway or EC2 with Elastic IP)
-#     - Home broadband / personal IP     → most reliable, zero flags
-#     - Mobile hotspot                   → works, good for testing
-#     - Residential proxy                → works if clean IP
-#
-# WHY:
-#   Naukri's fraud/bot detection checks whether the IP belongs to a
-#   known cloud/datacenter ASN. Azure and GitHub Actions share the
-#   same Microsoft AS8075 IP ranges — Naukri recognises these
-#   immediately and forces MFA, effectively breaking any headless
-#   client. AWS consumer-facing IPs (especially us-east-1 NAT) are
-#   less aggressively flagged, but a home server or residential IP
-#   is the gold standard.
-#
-# RECOMMENDATION FOR AGENTS / SCHEDULED WORKERS:
-#   - Run the harvester (nk_param_getter.py) and the job client
-#     from a home server, a Raspberry Pi, or an AWS EC2 instance
-#     with a dedicated Elastic IP (not a shared NAT).
-#   - If you must use cloud, attach a residential proxy to the
-#     requests session in src/client/session.py:
-#
-#   - Never run from GitHub Actions — the IP pool is fully burned
-#     for Naukri and will MFA-block on every single run.
-#
-# NOTE:
-#   Your login Bearer token and session cookies are tied to the IP
-#   that logged in. Switching IPs mid-session will invalidate the
-#   session and force a re-login, which may itself trigger MFA.
-#   Keep the same IP for the full session lifetime.
-# ------------------------------------------------------------------
 
 DEFAULT_HEADERS = {
     "accept": "application/json",
@@ -80,21 +45,18 @@ DEFAULT_HEADERS = {
 }
 
 OTP_HEADERS = {
-  "accept": "application/json",
-  "appid": "100",
-  "content-type": "application/json",
-  "referer": "https://www.naukri.com/nlogin/login?URL=//www.naukri.com/mnjuser/recommendedjobs",
-  "sec-ch-ua": "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"",
-  "sec-ch-ua-mobile": "?0",
-  "sec-ch-ua-platform": "\"Windows\"",
-  "systemid": "jobseeker",
-  "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-  "x-requested-with": "XMLHttpRequest"
+    "accept": "application/json",
+    "appid": "100",
+    "content-type": "application/json",
+    "referer": "https://www.naukri.com/nlogin/login?URL=//www.naukri.com/mnjuser/recommendedjobs",
+    "sec-ch-ua": "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"",
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "systemid": "jobseeker",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+    "x-requested-with": "XMLHttpRequest",
 }
 
-# ---------------------------------------------------------------------------
-# Client
-# ---------------------------------------------------------------------------
 
 class NaukriLoginClient:
 
@@ -125,7 +87,7 @@ class NaukriLoginClient:
                 "image/avif,image/webp,image/apng,*/*;q=0.8"
             ),
             "referer": "https://www.naukri.com/",
-            "sec-ch-ua": "\"Chromium\";v=\"146\", \"Not-A.Brand\";v=\"24\", \"Google Chrome\";v=\"146\"",
+            "sec-ch-ua": OTP_HEADERS["sec-ch-ua"],
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": "\"Windows\"",
             "upgrade-insecure-requests": "1",
@@ -133,7 +95,7 @@ class NaukriLoginClient:
         }
 
     # ------------------------------------------------------------------
-    # Login
+    # Cookie handling
     # ------------------------------------------------------------------
 
     def _get_cookie_value(self, name):
@@ -216,7 +178,6 @@ class NaukriLoginClient:
         expires=None,
         secure=False,
         http_only=False,
-        same_site="",
     ):
         try:
             self.session.set_cookie(
@@ -293,21 +254,14 @@ class NaukriLoginClient:
             if not name or value is None:
                 continue
 
-            domain = record.get("domain") or record.get("host") or DEFAULT_COOKIE_DOMAIN
-            path = record.get("path") or "/"
-            expires = record.get("expires") or record.get("expirationDate")
-            secure = record.get("secure", False)
-            http_only = record.get("httpOnly", record.get("http_only", False))
-            same_site = record.get("sameSite") or record.get("same_site") or ""
             self._set_session_cookie(
                 str(name),
                 str(value),
-                domain=domain,
-                path=path,
-                expires=expires,
-                secure=secure,
-                http_only=http_only,
-                same_site=same_site,
+                domain=record.get("domain") or record.get("host") or DEFAULT_COOKIE_DOMAIN,
+                path=record.get("path") or "/",
+                expires=record.get("expires") or record.get("expirationDate"),
+                secure=record.get("secure", False),
+                http_only=record.get("httpOnly", record.get("http_only", False)),
             )
             loaded += 1
 
@@ -444,9 +398,6 @@ class NaukriLoginClient:
             f.write("\n")
         os.replace(temp_path, self.cookie_file)
 
-    def _fetch_cookie_refresh_page(self, url):
-        return self.session.get(url, headers=self._build_web_headers())
-
     def _has_usable_access_cookie(self):
         return bool(self._get_cookie_value("nauk_at")) and not self._cookie_expires_soon("nauk_at")
 
@@ -455,7 +406,7 @@ class NaukriLoginClient:
 
         for url in COOKIE_REFRESH_URLS:
             try:
-                res = self._fetch_cookie_refresh_page(url)
+                res = self.session.get(url, headers=self._build_web_headers())
             except Exception:
                 continue
 
@@ -468,30 +419,9 @@ class NaukriLoginClient:
 
         return self._has_usable_access_cookie()
 
-    def get_cookies(self):
-        try:
-            return self.session.cookies.get_dict()
-        except Exception:
-            return {
-                record["name"]: record["value"]
-                for record in self._session_cookie_records()
-            }
-
-    def build_required_cookies(self):
-        cookies = self.get_cookies()
-        result = {
-            "test": "naukri.com",
-            "is_login": "1",
-        }
-
-        for key in ["nauk_rt", "nauk_sid", "MYNAUKRI[UNID]"]:
-            if cookies.get(key):
-                result[key] = cookies[key]
-
-        return result
-
-    def get_bearer_token(self):
-        return self._get_cookie_value("nauk_at")
+    # ------------------------------------------------------------------
+    # Login
+    # ------------------------------------------------------------------
 
     def login(self):
         self.load_cookies()
@@ -531,112 +461,6 @@ class NaukriLoginClient:
         self.save_cookies()
         return self.naukri_session
 
-    # ------------------------------------------------------------------
-    # OTP helpers
-    # ------------------------------------------------------------------
- 
-
-
-
-    @with_exponential_retry(label="verify_otp")
-    def _verify_otp_request(self, username: str, otp: str, is_mobile: bool):
-        payload = {
-            "username": username,
-            "token": otp,
-
-            "flowId": "login",
-            "isLoginByEmail": not is_mobile,
-            "isLoginByMobile": is_mobile,
-        }
-        return self.session.post(
-            OTP_VERIFY_URL,
-            headers=OTP_HEADERS,
-            json=payload,
-        )
-
-    def verify_otp(self, otp: str, username: str = None, is_mobile: bool = True):
-        """
-        Verify an OTP challenge issued by Naukri during login.
-
-        Args:
-            otp:        The 6-digit OTP received via SMS/email.
-            username:   Phone number (if is_mobile=True) or email. Defaults
-                        to the username supplied at client construction.
-            is_mobile:  True if username is a mobile number (default),
-                        False for email-based OTP.
-
-        Returns:
-            NaukriSession with the bearer token extracted from cookies.
-
-        Raises:
-            NaukriAuthError: On HTTP error or missing token in response.
-        """
-        target = username or self.username
-        res = self._verify_otp_request(target, otp, is_mobile)
-
-        if not res.ok:
-            logger.error("OTP verification failed: %s %s", res.status_code, res.text)
-            raise NaukriAuthError(f"OTP verification failed ({res.status_code})")
-
-        token = self.session.cookies.get("nauk_at")
-        if not token:
-            # Some flows return the token in the JSON body instead
-            try:
-                token = res.json().get("authToken") or res.json().get("token")
-            except Exception:
-                pass
-
-        if not token:
-            raise NaukriAuthError("OTP verified but no auth token received")
-
-        self.naukri_session = NaukriSession(token, self.session.cookies)
-        self.save_cookies()
-
-        return self.naukri_session
-
-
-    @with_exponential_retry(label="send_otp")
-    def _send_otp_request(self, username: str, is_mobile: bool):
-        payload = {
-            "username": username,
-            "flowId": "login",
-            "isLoginByEmail": not is_mobile,
-            "isLoginByMobile": is_mobile,
-        }
-        otp_header=self._build_headers()
-        otp_header["appid"]="100"
-        return self.session.post(
-            OTP_SEND_URL,
-            headers=otp_header,
-            json=payload,
-        )
-
-    def send_otp(self, username: str = None, is_mobile: bool = True):
-        """
-        Trigger Naukri to send an OTP to the user's phone/email.
-
-        Args:
-            username:   Phone number or email. Defaults to the username
-                        supplied at client construction.
-            is_mobile:  True for SMS OTP (default), False for email OTP.
-
-        Returns:
-            dict: Parsed JSON response from Naukri (contains flowId, etc.)
-
-        Raises:
-            NaukriAuthError: If the request fails.
-        """
-        target = username or self.username
-        res = self._send_otp_request(target, is_mobile)
-
-        if not res.ok:
-            logger.error("Send OTP failed: %s %s", res.status_code, res.text)
-            raise NaukriAuthError(f"Failed to send OTP ({res.status_code})")
-
-        try:
-            return res.json()
-        except Exception:
-            return {}
     @with_exponential_retry(label="verify_session")
     def _fetch_dashboard(self):
         return self.session.get(DASHBOARD_URL, headers=self._build_headers(auth=True))
@@ -670,6 +494,85 @@ class NaukriLoginClient:
         self.account_id = account_id
         return account_id
 
+    # ------------------------------------------------------------------
+    # OTP helpers
+    # ------------------------------------------------------------------
+
+    @with_exponential_retry(label="send_otp")
+    def _send_otp_request(self, username: str, is_mobile: bool):
+        payload = {
+            "username": username,
+            "flowId": "login",
+            "isLoginByEmail": not is_mobile,
+            "isLoginByMobile": is_mobile,
+        }
+        return self.session.post(
+            OTP_SEND_URL,
+            headers=self._build_headers(extra={"appid": "100"}),
+            json=payload,
+        )
+
+    def send_otp(self, username: str = None, is_mobile: bool = True):
+        """Trigger Naukri to send an OTP to the user's phone/email."""
+        target = username or self.username
+        res = self._send_otp_request(target, is_mobile)
+
+        if not res.ok:
+            logger.error("Send OTP failed: %s %s", res.status_code, res.text)
+            raise NaukriAuthError(f"Failed to send OTP ({res.status_code})")
+
+        try:
+            return res.json()
+        except Exception:
+            return {}
+
+    @with_exponential_retry(label="verify_otp")
+    def _verify_otp_request(self, username: str, otp: str, is_mobile: bool):
+        payload = {
+            "username": username,
+            "token": otp,
+            "flowId": "login",
+            "isLoginByEmail": not is_mobile,
+            "isLoginByMobile": is_mobile,
+        }
+        return self.session.post(
+            OTP_VERIFY_URL,
+            headers=OTP_HEADERS,
+            json=payload,
+        )
+
+    def verify_otp(self, otp: str, username: str = None, is_mobile: bool = True):
+        """Verify an OTP challenge issued by Naukri during login.
+
+        Returns a NaukriSession with the bearer token extracted from cookies.
+        """
+        target = username or self.username
+        res = self._verify_otp_request(target, otp, is_mobile)
+
+        if not res.ok:
+            logger.error("OTP verification failed: %s %s", res.status_code, res.text)
+            raise NaukriAuthError(f"OTP verification failed ({res.status_code})")
+
+        token = self.session.cookies.get("nauk_at")
+        if not token:
+            # Some flows return the token in the JSON body instead
+            try:
+                token = res.json().get("authToken") or res.json().get("token")
+            except Exception:
+                pass
+
+        if not token:
+            raise NaukriAuthError("OTP verified but no auth token received")
+
+        self.naukri_session = NaukriSession(token, self.session.cookies)
+        self.save_cookies()
+
+        return self.naukri_session
+
+    # ------------------------------------------------------------------
+    # Application history
+    # ------------------------------------------------------------------
+
     @with_exponential_retry(label="fetch_history")
     def _fetch_history_request(self, page_size, days, page_number, mobile=False):
         headers = {
@@ -695,15 +598,7 @@ class NaukriLoginClient:
         return self.session.get(HISTORY_URL, headers=headers, params=params)
 
     def get_application_history(self, page_size=10, days=90, page_number=1, mobile=False):
-        """
-        Fetch job application history.
-        
-        Args:
-            page_size:    Number of results per page (default 10)
-            days:         How far back to look (default 90)
-            page_number:  Page number (default 1)
-            mobile:       Use mobile headers (default False)
-        """
+        """Fetch job application history."""
         if not self.naukri_session:
             raise NaukriAuthError("Login first")
 

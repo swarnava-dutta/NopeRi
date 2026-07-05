@@ -41,10 +41,50 @@ SEARCH_QUERIES = [
 EXPERIENCE_LEVELS = [5]
 SEARCH_PAGES = 1
 JOB_AGE_DAYS = 1
-SEARCH_DELAY_SECONDS = 1.2
-SEARCH_ERROR_DELAY_SECONDS = 3
-APPLY_DELAY_SECONDS = 3
 DAILY_APPLY_LIMIT = 50
+
+
+# ---------------------------------------------------------------------------
+# Anti-ban / humanization settings (see src/utils/humanizer.py)
+# ---------------------------------------------------------------------------
+# Randomizes timing/behaviour so requests look human. NOTE: no client-side
+# randomization protects a datacenter IP — run from a residential IP
+# (see src/client/naukri_client.py).
+
+HUMANIZE = True                        # master switch
+
+# Randomized minimum gap enforced between ANY two API calls.
+MIN_REQUEST_GAP_SECONDS = 1.5
+MAX_REQUEST_GAP_SECONDS = 4.5
+
+# Randomized delay ranges (min, max seconds).
+APPLY_DELAY_MIN_SECONDS = 4.0          # between applies
+APPLY_DELAY_MAX_SECONDS = 12.0
+SEARCH_DELAY_MIN_SECONDS = 2.0         # between search pages
+SEARCH_DELAY_MAX_SECONDS = 7.0
+SEARCH_ERROR_DELAY_MIN_SECONDS = 5.0   # after a search error
+SEARCH_ERROR_DELAY_MAX_SECONDS = 15.0
+QUERY_DELAY_MIN_SECONDS = 5.0          # between search terms
+QUERY_DELAY_MAX_SECONDS = 20.0
+READING_PAUSE_MIN_SECONDS = 1.5        # "reading the JD" before applying
+READING_PAUSE_MAX_SECONDS = 6.0
+SESSION_WARMUP_MIN_SECONDS = 3         # random start delay (breaks cron timing)
+SESSION_WARMUP_MAX_SECONDS = 25
+
+# Occasional long "walked away" breaks between applies.
+LONG_BREAK_PROBABILITY = 0.08
+LONG_BREAK_MIN_SECONDS = 20
+LONG_BREAK_MAX_SECONDS = 90
+
+# 403/429 defense: randomized cooldown (escalates per block), lasting
+# slowdown cap, and hard abort after too many blocks.
+BLOCK_COOLDOWN_MIN_SECONDS = 60
+BLOCK_COOLDOWN_MAX_SECONDS = 180
+MAX_BLOCK_PENALTY_SECONDS = 30.0
+MAX_BLOCKS_BEFORE_ABORT = 3
+
+SHUFFLE_SEARCH_QUERIES = True          # shuffle query order each run
+DAILY_LIMIT_JITTER = 5                 # daily limit +/- this amount per run
 
 
 # ---------------------------------------------------------------------------

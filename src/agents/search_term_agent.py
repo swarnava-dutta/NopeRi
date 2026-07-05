@@ -1,7 +1,6 @@
-import time
-
-from src.agents.job_utils import dedup_new_jobs, empty_stats
+from src.agents.job_utils import dedup_new_jobs
 from src.config import agent_config as config
+from src.utils import humanizer
 
 
 class SearchTermApplyAgent:
@@ -46,7 +45,10 @@ class SearchTermApplyAgent:
                     )
                 except Exception as exc:
                     print(f"⚠️ Search failed: {keyword} | exp={exp} | page={page} | {exc}")
-                    time.sleep(config.SEARCH_ERROR_DELAY_SECONDS)
+                    humanizer.human_delay(
+                        config.SEARCH_ERROR_DELAY_MIN_SECONDS,
+                        config.SEARCH_ERROR_DELAY_MAX_SECONDS,
+                    )
                     continue
 
                 all_jobs.extend(dedup_new_jobs(jobs, self.seen_job_ids))
@@ -54,7 +56,11 @@ class SearchTermApplyAgent:
                 if not jobs:
                     break
 
-                time.sleep(config.SEARCH_DELAY_SECONDS)
+                # Randomized pause between search pages.
+                humanizer.human_delay(
+                    config.SEARCH_DELAY_MIN_SECONDS,
+                    config.SEARCH_DELAY_MAX_SECONDS,
+                )
 
         return all_jobs
 

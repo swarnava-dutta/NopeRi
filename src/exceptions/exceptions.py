@@ -1,6 +1,5 @@
 class NaukriClientError(Exception):
     """Base exception for all Naukri client errors."""
-    pass
 
 
 class NaukriAuthError(NaukriClientError):
@@ -10,16 +9,6 @@ class NaukriAuthError(NaukriClientError):
         msg = f"[AUTH ERROR] {message}"
         if status_code:
             msg += f" | HTTP {status_code}"
-        super().__init__(msg)
-
-
-class NaukriNetworkError(NaukriClientError):
-    """Network / request failures (timeouts, connection issues)."""
-
-    def __init__(self, message="Network request failed", url=None):
-        msg = f"[NETWORK ERROR] {message}"
-        if url:
-            msg += f" | URL: {url}"
         super().__init__(msg)
 
 
