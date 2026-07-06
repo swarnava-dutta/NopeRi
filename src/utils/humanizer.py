@@ -12,7 +12,7 @@ protect a datacenter IP (see src/client/naukri_client.py).
 import random
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.config import agent_config as config
 
@@ -52,7 +52,8 @@ def session_warmup() -> None:
 
 def generate_sid() -> str:
     """Timestamp + 7 random digits (never a constant-suffix fingerprint)."""
-    return datetime.utcnow().strftime("%Y%m%d%H%M%S") + "".join(random.choices("0123456789", k=7))
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return stamp + "".join(random.choices("0123456789", k=7))
 
 
 def jitter_int(value: int, spread: int) -> int:
@@ -106,3 +107,8 @@ class RequestPacer:
 PACER = RequestPacer()
 pace = PACER.pace
 register_block = PACER.register_block
+
+
+def too_many_blocks() -> bool:
+    """True once the run has hit the configured server-block abort threshold."""
+    return PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT

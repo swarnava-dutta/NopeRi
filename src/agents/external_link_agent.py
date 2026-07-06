@@ -1,6 +1,4 @@
-from datetime import datetime
-
-from src.agents.job_store import load_job_ids, normalise_job_link, write_csv_row
+from src.agents.job_store import load_job_ids, normalise_job_link, utc_timestamp, write_csv_row
 from src.config import agent_config as config
 
 
@@ -27,8 +25,7 @@ class ExternalLinkAgent:
                 "company": job.company,
                 "source": source,
                 "apply_link": normalise_job_link(job),
-                "documented_at": datetime.utcnow().isoformat(),
+                "documented_at": utc_timestamp(),
             },
         )
         self.documented_job_ids.add(job.job_id)
-

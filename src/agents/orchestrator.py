@@ -2,9 +2,8 @@ import sys
 
 from src.agents.easy_apply_agent import EasyApplyAgent
 from src.agents.external_link_agent import ExternalLinkAgent
+from src.agents.job_sources import run_recommended, run_search_term
 from src.agents.job_utils import add_stats, empty_stats
-from src.agents.recommended_agent import RecommendedJobAgent
-from src.agents.search_term_agent import SearchTermApplyAgent
 from src.client.job_client import NaukriJobClient
 from src.client.naukri_client import NaukriLoginClient
 from src.config import agent_config as config
@@ -12,7 +11,7 @@ from src.utils import humanizer
 
 
 class NaukriApplyOrchestrator:
-    """Coordinates plain Python agents in a fixed, resumable phase order."""
+    """Coordinates the apply phases in a fixed order: recommended → search."""
 
     def __init__(self) -> None:
         self.seen_job_ids = set()
@@ -37,8 +36,7 @@ class NaukriApplyOrchestrator:
             print(f"🎲 Daily limit jittered: {config.DAILY_APPLY_LIMIT} → {self.daily_limit}")
 
         job_client = NaukriJobClient(login_client)
-        external_link_agent = ExternalLinkAgent()
-        easy_apply_agent = EasyApplyAgent(job_client, external_link_agent)
+        easy_apply_agent = EasyApplyAgent(job_client, ExternalLinkAgent())
 
         self._run_recommended(job_client, easy_apply_agent)
         self._run_search_terms(job_client, easy_apply_agent)
@@ -49,12 +47,9 @@ class NaukriApplyOrchestrator:
             print("\n⏭️ Recommended phase skipped by config.")
             return
 
-        recommended_agent = RecommendedJobAgent(
-            job_client=job_client,
-            easy_apply_agent=easy_apply_agent,
-            seen_job_ids=self.seen_job_ids,
-        )
-        add_stats(self.totals, recommended_agent.run(self._daily_remaining()))
+        add_stats(self.totals, run_recommended(
+            job_client, easy_apply_agent, self.seen_job_ids, self._daily_remaining(),
+        ))
 
     def _run_search_terms(self, job_client, easy_apply_agent) -> None:
         if not config.RUN_SEARCH_PHASE:
@@ -72,7 +67,7 @@ class NaukriApplyOrchestrator:
                 print("🛑 Daily apply limit reached. Stopping search.")
                 break
 
-            if humanizer.PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT:
+            if humanizer.too_many_blocks():
                 print("🛑 Too many server blocks this run — aborting to protect the account.")
                 break
 
@@ -80,13 +75,9 @@ class NaukriApplyOrchestrator:
             if index > 0:
                 humanizer.human_delay(config.QUERY_DELAY_MIN_SECONDS, config.QUERY_DELAY_MAX_SECONDS)
 
-            search_agent = SearchTermApplyAgent(
-                job_client=job_client,
-                easy_apply_agent=easy_apply_agent,
-                query=query,
-                seen_job_ids=self.seen_job_ids,
-            )
-            add_stats(self.totals, search_agent.run(self._daily_remaining()))
+            add_stats(self.totals, run_search_term(
+                job_client, easy_apply_agent, query, self.seen_job_ids, self._daily_remaining(),
+            ))
 
     def _daily_remaining(self) -> int:
         return self.daily_limit - self.totals["applied"]
@@ -107,4 +98,3 @@ class NaukriApplyOrchestrator:
                 stream.reconfigure(encoding="utf-8", errors="replace")
             except Exception:
                 pass
-

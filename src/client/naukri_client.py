@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import time
+from email.utils import formatdate, parsedate_to_datetime
 
 from src.client.session import build_session
 from src.config.constants import (
@@ -58,6 +59,20 @@ OTP_HEADERS = {
 }
 
 
+def _expiry_to_epoch(expires) -> float | None:
+    """Accepts unix epoch (browser export) or RFC1123 string (httpcloak)."""
+    if not expires:
+        return None
+    try:
+        return float(expires)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return parsedate_to_datetime(str(expires)).timestamp()
+    except Exception:
+        return None
+
+
 class NaukriLoginClient:
 
     def __init__(self, username=None, cookie_file=DEFAULT_COOKIE_FILE):
@@ -69,7 +84,7 @@ class NaukriLoginClient:
         self._cookie_payload = None
         self._cookie_payload_shape = None
 
-    def _build_headers(self, auth=False, extra=None):
+    def build_headers(self, auth=False, extra=None):
         headers = DEFAULT_HEADERS.copy()
         if auth:
             if not self.naukri_session:
@@ -79,6 +94,9 @@ class NaukriLoginClient:
         if extra:
             headers.update(extra)
         return headers
+
+    # Backwards-compatible alias (used by older integrations).
+    _build_headers = build_headers
 
     def _build_web_headers(self):
         return {
@@ -95,141 +113,19 @@ class NaukriLoginClient:
         }
 
     # ------------------------------------------------------------------
-    # Cookie handling
+    # Cookie handling (httpcloak native cookie API)
     # ------------------------------------------------------------------
 
     def _get_cookie_value(self, name):
-        try:
-            cookie = self.session.get_cookie(name)
-            if cookie and getattr(cookie, "value", None):
-                return cookie.value
-        except Exception:
-            pass
-
-        try:
-            value = self.session.cookies.get(name)
-            if value:
-                return value
-        except Exception:
-            pass
-
-        try:
-            for cookie in self.session.cookies:
-                if isinstance(cookie, dict):
-                    if (cookie.get("name") or cookie.get("key")) == name:
-                        return cookie.get("value")
-                elif getattr(cookie, "name", None) == name:
-                    return cookie.value
-        except Exception:
-            pass
-
-        try:
-            return self.session.cookies.get_dict().get(name)
-        except Exception:
-            return None
-
-    def _get_cookie_expiry(self, name):
-        for record in self._session_cookie_records():
-            if record.get("name") != name:
-                continue
-
-            expires = record.get("expirationDate") or record.get("expires")
-            if not expires:
-                return None
-
-            try:
-                return float(expires)
-            except (TypeError, ValueError):
-                return None
-
-        return None
+        cookie = self.session.get_cookie(name)
+        return cookie.value if cookie else None
 
     def _cookie_expires_soon(self, name, skew_seconds=COOKIE_EXPIRY_SKEW_SECONDS):
-        expires = self._get_cookie_expiry(name)
+        cookie = self.session.get_cookie(name)
+        expires = _expiry_to_epoch(getattr(cookie, "expires", None)) if cookie else None
         if not expires:
             return False
         return expires <= time.time() + skew_seconds
-
-    def _normalise_cookie_records(self, payload):
-        if isinstance(payload, list):
-            self._cookie_payload_shape = "list"
-            return payload
-
-        if isinstance(payload, dict) and isinstance(payload.get("cookies"), list):
-            self._cookie_payload_shape = "wrapped_list"
-            return payload["cookies"]
-
-        if isinstance(payload, dict):
-            self._cookie_payload_shape = "dict"
-            return [
-                {"name": name, "value": value}
-                for name, value in payload.items()
-                if not isinstance(value, (dict, list))
-            ]
-
-        raise NaukriAuthError(f"{self.cookie_file} must contain a cookie list or object")
-
-    def _set_session_cookie(
-        self,
-        name,
-        value,
-        domain=DEFAULT_COOKIE_DOMAIN,
-        path="/",
-        expires=None,
-        secure=False,
-        http_only=False,
-    ):
-        try:
-            self.session.set_cookie(
-                name,
-                value,
-                domain=domain or DEFAULT_COOKIE_DOMAIN,
-                path=path or "/",
-                secure=bool(secure),
-                http_only=bool(http_only),
-                same_site="",
-            )
-            return
-        except Exception:
-            pass
-
-        kwargs = {}
-        if domain:
-            kwargs["domain"] = domain
-        if path:
-            kwargs["path"] = path
-        if expires is not None:
-            try:
-                kwargs["expires"] = int(expires)
-            except (TypeError, ValueError):
-                pass
-
-        try:
-            self.session.cookies.set(name, value, **kwargs)
-            return
-        except Exception:
-            pass
-
-        try:
-            self.session.cookies.set(name, value)
-            return
-        except Exception:
-            pass
-
-        if isinstance(self.session.cookies, list):
-            for cookie in self.session.cookies:
-                if isinstance(cookie, dict) and (cookie.get("name") or cookie.get("key")) == name:
-                    cookie["value"] = value
-                    return
-            self.session.cookies.append({
-                "name": name,
-                "value": value,
-                "domain": domain or DEFAULT_COOKIE_DOMAIN,
-                "path": path or "/",
-            })
-            return
-
-        raise NaukriAuthError(f"Could not set cookie {name}")
 
     def load_cookies(self):
         if not os.path.exists(self.cookie_file):
@@ -254,14 +150,19 @@ class NaukriLoginClient:
             if not name or value is None:
                 continue
 
-            self._set_session_cookie(
+            # httpcloak wants expires as an RFC1123 string; browser exports
+            # store an epoch under expirationDate.
+            expires_epoch = _expiry_to_epoch(
+                record.get("expirationDate") or record.get("expires")
+            )
+            self.session.set_cookie(
                 str(name),
                 str(value),
                 domain=record.get("domain") or record.get("host") or DEFAULT_COOKIE_DOMAIN,
                 path=record.get("path") or "/",
-                expires=record.get("expires") or record.get("expirationDate"),
-                secure=record.get("secure", False),
-                http_only=record.get("httpOnly", record.get("http_only", False)),
+                secure=bool(record.get("secure", False)),
+                http_only=bool(record.get("httpOnly", record.get("http_only", False))),
+                expires=formatdate(expires_epoch, usegmt=True) if expires_epoch else None,
             )
             loaded += 1
 
@@ -270,72 +171,54 @@ class NaukriLoginClient:
 
         return loaded
 
+    def _normalise_cookie_records(self, payload):
+        """Accepts a browser-export list, {"cookies": [...]}, or a flat
+        name→value object. Remembers the shape so save_cookies() can write
+        the same format back."""
+        if isinstance(payload, list):
+            self._cookie_payload_shape = "list"
+            return payload
+
+        if isinstance(payload, dict) and isinstance(payload.get("cookies"), list):
+            self._cookie_payload_shape = "wrapped_list"
+            return payload["cookies"]
+
+        if isinstance(payload, dict):
+            self._cookie_payload_shape = "dict"
+            return [
+                {"name": name, "value": value}
+                for name, value in payload.items()
+                if not isinstance(value, (dict, list))
+            ]
+
+        raise NaukriAuthError(f"{self.cookie_file} must contain a cookie list or object")
+
     def _session_cookie_records(self):
         records = []
-
-        try:
-            iterator = list(self.session.cookies)
-        except Exception:
-            iterator = []
-
-        for cookie in iterator:
-            if isinstance(cookie, dict):
-                name = cookie.get("name") or cookie.get("key")
-                value = cookie.get("value")
-                domain = cookie.get("domain") or cookie.get("host") or DEFAULT_COOKIE_DOMAIN
-                path = cookie.get("path") or "/"
-                secure = cookie.get("secure")
-                http_only = cookie.get("httpOnly", cookie.get("http_only"))
-                expires = cookie.get("expires") or cookie.get("expirationDate")
-                same_site = cookie.get("sameSite") or cookie.get("same_site")
-            else:
-                name = getattr(cookie, "name", None)
-                value = getattr(cookie, "value", None)
-                domain = getattr(cookie, "domain", None) or DEFAULT_COOKIE_DOMAIN
-                path = getattr(cookie, "path", None) or "/"
-                secure = getattr(cookie, "secure", None)
-                http_only = getattr(cookie, "http_only", None)
-                expires = getattr(cookie, "expires", None)
-                same_site = getattr(cookie, "same_site", None)
-
-            if not name or value is None:
+        for cookie in self.session.get_cookies_detailed():
+            if not cookie.name or cookie.value is None:
                 continue
 
             record = {
-                "name": name,
-                "value": value,
-                "domain": domain,
-                "path": path,
+                "name": cookie.name,
+                "value": cookie.value,
+                "domain": cookie.domain or DEFAULT_COOKIE_DOMAIN,
+                "path": cookie.path or "/",
             }
+            if cookie.secure:
+                record["secure"] = cookie.secure
+            if cookie.http_only:
+                record["httpOnly"] = cookie.http_only
+            if cookie.same_site:
+                record["sameSite"] = cookie.same_site
 
-            if secure is not None:
-                record["secure"] = secure
-            if http_only is not None:
-                record["httpOnly"] = http_only
-            if expires:
-                record["expirationDate"] = expires
-            if same_site:
-                record["sameSite"] = same_site
+            expires_epoch = _expiry_to_epoch(cookie.expires)
+            if expires_epoch:
+                record["expirationDate"] = expires_epoch
 
             records.append(record)
 
-        if records:
-            return records
-
-        try:
-            cookies = self.session.cookies.get_dict()
-        except Exception:
-            cookies = dict(self.session.cookies)
-
-        return [
-            {
-                "name": name,
-                "value": value,
-                "domain": DEFAULT_COOKIE_DOMAIN,
-                "path": "/",
-            }
-            for name, value in cookies.items()
-        ]
+        return records
 
     def _merge_cookie_records(self, original_records, current_records):
         current_by_name = {
@@ -441,18 +324,20 @@ class NaukriLoginClient:
         try:
             self._verify_cookie_session()
         except Exception as exc:
+            # One retry: refresh the cookies and verify again if the
+            # server rotated the token.
             self._refresh_cookie_session()
             refreshed_token = self._get_cookie_value("nauk_at")
-            if refreshed_token and refreshed_token != token:
-                self.naukri_session = NaukriSession(refreshed_token, self.session.cookies)
-                try:
-                    self._verify_cookie_session()
-                except Exception as retry_exc:
-                    self.naukri_session = None
-                    raise NaukriAuthError(f"Cookie login failed or expired: {retry_exc}") from retry_exc
-            else:
+            if not refreshed_token or refreshed_token == token:
                 self.naukri_session = None
                 raise NaukriAuthError(f"Cookie login failed or expired: {exc}") from exc
+
+            self.naukri_session = NaukriSession(refreshed_token, self.session.cookies)
+            try:
+                self._verify_cookie_session()
+            except Exception as retry_exc:
+                self.naukri_session = None
+                raise NaukriAuthError(f"Cookie login failed or expired: {retry_exc}") from retry_exc
 
         refreshed_token = self._get_cookie_value("nauk_at")
         if refreshed_token:
@@ -463,7 +348,7 @@ class NaukriLoginClient:
 
     @with_exponential_retry(label="verify_session")
     def _fetch_dashboard(self):
-        return self.session.get(DASHBOARD_URL, headers=self._build_headers(auth=True))
+        return self.session.get(DASHBOARD_URL, headers=self.build_headers(auth=True))
 
     def _verify_cookie_session(self):
         if self.account_id:
@@ -476,14 +361,10 @@ class NaukriLoginClient:
         try:
             data = res.json()
         except Exception as exc:
-            content_type = ""
-            try:
-                content_type = res.headers.get("content-type", "")
-            except Exception:
-                pass
+            content_type = res.headers.get("content-type", "") or "unknown"
             raise NaukriAuthError(
                 "session verify returned a non-JSON response "
-                f"(HTTP {res.status_code}, content-type: {content_type or 'unknown'}). "
+                f"(HTTP {res.status_code}, content-type: {content_type}). "
                 "The saved cookies are expired, IP-bound to another connection, or blocked by Naukri."
             ) from exc
 
@@ -508,7 +389,7 @@ class NaukriLoginClient:
         }
         return self.session.post(
             OTP_SEND_URL,
-            headers=self._build_headers(extra={"appid": "100"}),
+            headers=self.build_headers(extra={"appid": "100"}),
             json=payload,
         )
 
@@ -553,7 +434,7 @@ class NaukriLoginClient:
             logger.error("OTP verification failed: %s %s", res.status_code, res.text)
             raise NaukriAuthError(f"OTP verification failed ({res.status_code})")
 
-        token = self.session.cookies.get("nauk_at")
+        token = self._get_cookie_value("nauk_at")
         if not token:
             # Some flows return the token in the JSON body instead
             try:

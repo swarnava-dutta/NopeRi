@@ -15,10 +15,7 @@ class EasyApplyAgent:
     @staticmethod
     def _is_blocked_company(job) -> bool:
         company = (job.company or "").lower()
-        return any(
-            blocked in company
-            for blocked in getattr(config, "BLOCKED_COMPANIES", [])
-        )
+        return any(blocked in company for blocked in config.BLOCKED_COMPANIES)
 
     def run(self, jobs: list, source: str, label: str, daily_remaining: int) -> dict:
         stats = empty_stats(found=len(jobs))
@@ -51,7 +48,7 @@ class EasyApplyAgent:
 
             # Abort the run entirely if the server keeps pushing back —
             # continuing turns a soft block into a real ban.
-            if humanizer.PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT:
+            if humanizer.too_many_blocks():
                 print("🛑 Too many server blocks this run — stopping to protect the account.")
                 break
 

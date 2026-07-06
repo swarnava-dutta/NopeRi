@@ -1,9 +1,16 @@
+"""CSV persistence for applied and documented jobs."""
+
 import csv
-from datetime import datetime
 import json
 import os
+from datetime import datetime, timezone
 
 from src.config import agent_config as config
+
+
+def utc_timestamp() -> str:
+    """ISO-8601 UTC timestamp used in every CSV row."""
+    return datetime.now(timezone.utc).isoformat()
 
 
 def load_job_ids(csv_file: str) -> set:
@@ -15,6 +22,8 @@ def load_job_ids(csv_file: str) -> set:
 
 
 def ensure_csv_fieldnames(csv_file: str, required_fieldnames: list[str]) -> list[str]:
+    """Make sure the CSV header contains every required column, migrating
+    existing rows when new columns are introduced."""
     if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
         return required_fieldnames
 
@@ -57,7 +66,7 @@ def save_applied_job(job, questionnaire_answers: list | None = None) -> None:
             "job_id": job.job_id,
             "title": job.title,
             "company": job.company,
-            "applied_at": datetime.utcnow().isoformat(),
+            "applied_at": utc_timestamp(),
             "questionnaire_answers": json.dumps(
                 questionnaire_answers or [],
                 ensure_ascii=False,

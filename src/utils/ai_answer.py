@@ -1,6 +1,6 @@
 """Claude-powered fallback for questionnaire answers.
 
-The fixed rules in ``job_client.build_smart_answers`` stay authoritative.
+The fixed rules in ``src/utils/questionnaire.py`` stay authoritative.
 When a question is NOT covered by those rules, this module asks Claude
 (Haiku 4.5 by default) to answer it using the candidate profile from
 ``agent_config.QUESTIONNAIRE_PROFILE``.

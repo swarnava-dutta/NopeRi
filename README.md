@@ -79,11 +79,14 @@ Plain Python agent flow:
 
 1. Login using `cookies.json`
 2. `NaukriApplyOrchestrator` starts the phase order
-3. `RecommendedJobAgent` fetches recommended jobs, if enabled
-4. `SearchTermApplyAgent` runs once per configured search term, if enabled
+3. `job_sources.run_recommended` fetches recommended jobs, if enabled
+4. `job_sources.run_search_term` runs once per configured search term, if enabled
 5. `EasyApplyAgent` applies Naukri easy-apply jobs
 6. `ExternalLinkAgent` documents company-site apply links in `external_jobs.csv`
 7. Applied job IDs are saved to `applied_jobs.csv`
+
+Questionnaire answering (fixed rules + AI fallback) lives in
+`src/utils/questionnaire.py`.
 
 When a job has questionnaire questions, fixed rules answer the common ones
 (CTC, notice period, relocation, etc.) and Claude answers the rest using the
