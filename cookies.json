@@ -66,24 +66,24 @@
   },
   {
     "name": "ak_bmsc",
-    "value": "09CEC37026B114227B2AD76A55CDD4E5~000000000000000000000000000000~YAAQjonTF5B+vwmfAQAAmVJgMQBYiuo5erK+00gOBaMrD6gdYAlP2Qhmi5Z896LwzftG7vjpi1x61kFCjCNpUNjrDX1F5immaMEDONA2nwVuC19YpnbZgOPdF0wviRNLgMWfIti5GubiaHx0i33j+QAp9vUm+Ewxt87A443yszEjyHWBO0JjaFxrC7s2igsPmAlVpsne7VvsnXhR4tc9UdZsWeka6TbmlSj8J1oywbI82CAH6TIZpTpJlIjsH0eHz5RGOMWL2UrRGZJ6pCzxvgHFI+Ok6V/9d5yhklKVmU79eS3ZlhvKFmaadjmGqUbFUWmdSkNwmscX7yknq/QnaNALEZ0FjsvqCxuPVxxPfcCHJnoUMHCSy/4p1/I9HjRZpM2cYAzbqxnpB4hpLRRmB3mf3TJGSJDOjIOH6Thm",
+    "value": "4C509345F5A10BCF68BDD793041A6FDF~000000000000000000000000000000~YAAQjonTF6VZhgqfAQAA6+ACNwDRlWzSD5PMM+iHJKvuozA9zPDim7ZRWsf8jY5UtpkrZumipbjljBTSU3jVRVgQ2Q8NE/5YmguV8Tv2SjzaBZ3ckbvSFuL48GvmpvgsnxIphKWkauVa22JobwgGr8PsJSevjRA/8aYYuxkrR7JrH/kC5TejSVDl81xGKkve/yPvDhOpBWKvJoChQxdoUestFkP2iR1TaIrIZ8BBUx5+Ah3lY8SX3II5SEqV0cyOH1+yUtNUEf+IsNtFtnIxim7E6eDezGvzIhaJ+lVSik3O59rymODJeqR9+aLxAHUspAab9VdGlc3Rp+9jZkKPuuB/RrbW/H4+94utOBHEQMHfER7ukj9pw09fBo48WD2NEkcZOgyyCEqvQVL2N9i+TraXukMr5RE3XUT6zBI/",
     "domain": ".naukri.com",
     "path": "/",
     "secure": false,
     "httpOnly": true,
     "sameSite": "None",
-    "expirationDate": "Sun, 05 Jul 2026 10:23:43 GMT",
+    "expirationDate": "Mon, 06 Jul 2026 12:39:22 GMT",
     "session": false
   },
   {
     "name": "bm_sv",
-    "value": "B47F1782A459F53894714D2AEA04F022~YAAQjonTF/5w8wifAQAAQ+2zJgBHb6CymsjZiXAXFBpVhVx/jIz8Fr+Af1sLoNCBx+z5GBFpwRY3blPzRzGEWqap+RDVcwArb8OJ7VUQHIHiYnovPHUCQPbnqa/Rachf3AP8eTyUc5LIReZlXnkafnh231bwnJo9wgwLzL1dA/NulHKxSZOPk+1uxNE4ywDSv9BvqL0okJob4k894jQ06niU243sGF5CnKFBsIztt4lsH6W/4x6V7qxM34jZEEMegA==~1",
+    "value": "B47F1782A459F53894714D2AEA04F022~YAAQjonTF6dZhgqfAQAA6+ACNwDeG3IeVJqMaIZrMh4APgbvtuEEIyDZtuclVwAqdJ1cdAVcApefxi0DSxN9aebo16VcEPcG0SLVNlyZawXe7QZdUg35XAL7Ek/NKera6epPY8TYMWtVGZnGKXSzWQ837LNirJyjRSrKppfF4u/lEoOOphDjzDXvIQbc7qKJh1fyPTRx3dgOExtHWFEHvsxHZ5G4IympPV+wbp0FdE3dCctp9guR0whROLpM8Duzug==~1",
     "domain": ".naukri.com",
     "path": "/",
     "secure": true,
     "httpOnly": false,
     "sameSite": "None",
-    "expirationDate": "Fri, 03 Jul 2026 06:39:13 GMT",
+    "expirationDate": "Mon, 06 Jul 2026 10:39:23 GMT",
     "session": false
   },
   {
@@ -112,18 +112,18 @@
     "secure": true,
     "httpOnly": true,
     "sameSite": "None",
-    "expirationDate": "Sun, 05 Jul 2026 09:23:43 GMT",
+    "expirationDate": "Mon, 06 Jul 2026 11:39:22 GMT",
     "session": false
   },
   {
     "name": "nauk_at",
-    "value": "eyJraWQiOiIzIiwidHlwIjoiSldUIiwiYWxnIjoiUlM1MTIifQ.eyJkZXZpY2VUeXBlIjoiZDNza3QwcCIsInVkX3Jlc0lkIjoxNTA2MTI0MjUsInN1YiI6IjE2MDc5NTgwNyIsInVkX3VzZXJuYW1lIjoic3dhcm5hdmEuZHV0dGE5N0BnbWFpbC5jb20iLCJ1ZF9pc0VtYWlsIjp0cnVlLCJpc3MiOiJJbmZvRWRnZSBJbmRpYSBQdnQuIEx0ZC4iLCJ1c2VyQWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTQ3LjAuMC4wIFNhZmFyaS81MzcuMzYiLCJpcEFkcmVzcyI6IjEwMy4xOTUuNzMuNjEiLCJ1ZF9pc1RlY2hPcHNMb2dpbiI6ZmFsc2UsInVzZXJJZCI6MTYwNzk1ODA3LCJzdWJVc2VyVHlwZSI6IiIsInVzZXJTdGF0ZSI6IkFVVEhFTlRJQ0FURUQiLCJ1ZF9pc1BhaWRDbGllbnQiOmZhbHNlLCJ1ZF9lbWFpbFZlcmlmaWVkIjp0cnVlLCJ1c2VyVHlwZSI6ImpvYnNlZWtlciIsInNlc3Npb25TdGF0VGltZSI6IjIwMjYtMDQtMTlUMTE6Mjc6MDIiLCJ1ZF9lbWFpbCI6InN3YXJuYXZhZHV0dGEub2ZmaWNpYWxAZ21haWwuY29tIiwidXNlclJvbGUiOiJ1c2VyIiwiZXhwIjoxNzgzMjQzNDIzLCJ0b2tlblR5cGUiOiJhY2Nlc3NUb2tlbiIsImlhdCI6MTc4MzIzOTgyMywianRpIjoiZmY1ZjFkMjNhN2MwNDQ2MDlhY2M1ZDA0MGFhOWY3YmMiLCJwb2RJZCI6InByb2QtNWJiYzZiYjU5Yi03aDlqbiJ9.fnpyANWmN_5E7IE9AwseLDMllxbv759AZDJSRRtAePpDSCm26B6GVZ8qRpEC8wyL61vcUo0h2A3_kcBG7JoPeRuMNV07uzV1B__kqqcj3RtLOhqr8tCV95YG-vGi4VWidCklaywEnfI6irHR1euaHrjfbkK6x_4oq7JrwaJ-jRj22lIynjpcWJJY0_y3__dKLWj3a-sXSRSrE71LbyCwTb3JvMoS54pPUpNl56a0CbVxLjbloz5McSBGgcMRvcivI6hJiVWPFa5i35yjV2jQ9pBbvSNf_z7zO9W6iSY9C_8E-n1Q6s4NHPZhmI3pbfd1246V97F-5g-ENAwfVi6wHA",
+    "value": "eyJraWQiOiIzIiwidHlwIjoiSldUIiwiYWxnIjoiUlM1MTIifQ.eyJkZXZpY2VUeXBlIjoiZDNza3QwcCIsInVkX3Jlc0lkIjoxNTA2MTI0MjUsInN1YiI6IjE2MDc5NTgwNyIsInVkX3VzZXJuYW1lIjoic3dhcm5hdmEuZHV0dGE5N0BnbWFpbC5jb20iLCJ1ZF9pc0VtYWlsIjp0cnVlLCJpc3MiOiJJbmZvRWRnZSBJbmRpYSBQdnQuIEx0ZC4iLCJ1c2VyQWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTQ3LjAuMC4wIFNhZmFyaS81MzcuMzYiLCJpcEFkcmVzcyI6IjEwMy4xOTUuNzMuNjEiLCJ1ZF9pc1RlY2hPcHNMb2dpbiI6ZmFsc2UsInVzZXJJZCI6MTYwNzk1ODA3LCJzdWJVc2VyVHlwZSI6IiIsInVzZXJTdGF0ZSI6IkFVVEhFTlRJQ0FURUQiLCJ1ZF9pc1BhaWRDbGllbnQiOmZhbHNlLCJ1ZF9lbWFpbFZlcmlmaWVkIjp0cnVlLCJ1c2VyVHlwZSI6ImpvYnNlZWtlciIsInNlc3Npb25TdGF0VGltZSI6IjIwMjYtMDQtMTlUMTE6Mjc6MDIiLCJ1ZF9lbWFpbCI6InN3YXJuYXZhZHV0dGEub2ZmaWNpYWxAZ21haWwuY29tIiwidXNlclJvbGUiOiJ1c2VyIiwiZXhwIjoxNzgzMzM3OTYyLCJ0b2tlblR5cGUiOiJhY2Nlc3NUb2tlbiIsImlhdCI6MTc4MzMzNDM2MiwianRpIjoiZmY1ZjFkMjNhN2MwNDQ2MDlhY2M1ZDA0MGFhOWY3YmMiLCJwb2RJZCI6InByb2QtNWJiYzZiYjU5Yi16YnY4NSJ9.Nq-mJUQ717Btmro2H4zeNH-MvlzYRc2cP-cA9mqwPPlI8nEF607accjAo5o4ofaXye8skkcEYCJaB3krFF9BoDPaqp7LkS1hUynVqvXvLxvgx5G2_qPJALQrIS8Bz-CD-wixFXEcCBSU2G5_2n9uIdTEGMuUGCXgTxzIa1qWxkYe4ILrwNcDXQAUhFYoIKx2zG3XSToNj49kdSac239P6MYPMyr4cnnyB2i1VCWrGRmRUsO62deLAwTS3tM7eWUO9tKXCcTKGdJslRoqm3lyUcXzOPcBl1evDXSqW6GxB9DoLLowWmZVAO8AjdawDWQu9-pmI-mhJnk_WA5Vv2rhZg",
     "domain": ".naukri.com",
     "path": "/",
     "secure": true,
     "httpOnly": false,
     "sameSite": "None",
-    "expirationDate": "Sun, 05 Jul 2026 09:23:43 GMT",
+    "expirationDate": "Mon, 06 Jul 2026 11:39:22 GMT",
     "session": false
   },
   {
@@ -179,7 +179,7 @@
     "session": false,
     "storeId": "0",
     "value": "aurus",
-    "expirationDate": "Sun, 05 Jul 2026 08:23:44 GMT"
+    "expirationDate": "Mon, 06 Jul 2026 10:39:23 GMT"
   },
   {
     "domain": ".naukri.com",
@@ -192,7 +192,7 @@
     "session": false,
     "storeId": "0",
     "value": "default",
-    "expirationDate": "Sun, 05 Jul 2026 08:23:44 GMT"
+    "expirationDate": "Mon, 06 Jul 2026 10:39:23 GMT"
   },
   {
     "domain": ".naukri.com",
@@ -217,7 +217,7 @@
     "secure": true,
     "session": false,
     "storeId": "0",
-    "value": "0F81F8051BBB88FA7FFCE6969C192C01~YAAQjonTF4Bw8wifAQAAZOyzJgCgqJA7msN1X9zdoYCPM6TkYU5G+4K+9073Od8DMlfSiy1HjS0F31FJzdu2HNXAR8ILlepllwdJBkJPQ3YUHxvCwFYVcrAfD/qz+lxrq5gIwr8xRHDbEyOWYQQi4iFiMyHowQGakgaCOJeTxAk55reJt+1sPEzaB44SszJb4Ymq1GDgO8HseDFCw00vT6+3LnoC7odxAdsS6W8NR0phom/LLsyOXwSjKHSYbLi6J5k53w3w9MyIFDIUKuLuPMQbWGE3pVyGhkt7G2v7zqtfRtYIRFpAmPxvdCNn+RVSAkwnnOUex+xQrj4=~1",
-    "expirationDate": "Fri, 03 Jul 2026 06:39:13 GMT"
+    "value": "0F81F8051BBB88FA7FFCE6969C192C01~YAAQjonTF6ZZhgqfAQAA6+ACNwBLHnflP6qX+fX+yMg3neZArO5pvWpCxLnD1jaOjaR6O/BE+TRGIh1/hgTxXVUiTRBuh1iwpBqboDQSnMH2bVrBfsnoRc+aiOMwWQqN8iz13vbN7Bb9zKVeb084IQIWHv2LVkr4vd9F9qN0eBJJmrDiMI4vwwwIPgI5DbT29xVkia8UNqeY46pluDMdBhaTLkq6znPUz2rdiaHjrybdPJ8sfWrf2RAQuqg+nnFD6vkJMI2d+6/zqL78FKJACRmjwihkoWaWowNeT9rr+fKhHduW7euGgyMuNJbtHmj3ohdIlgIorNMvn40=~1",
+    "expirationDate": "Mon, 06 Jul 2026 10:39:23 GMT"
   }
 ]

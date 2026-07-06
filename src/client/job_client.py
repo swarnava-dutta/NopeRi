@@ -262,6 +262,31 @@ class NaukriJobClient:
                         return k
                 return list(options.keys())[-1]
 
+            def pick_gender(options: dict, gender: str) -> str:
+                target = (gender or "Male").lower().strip()
+                for k, v in options.items():
+                    label = str(v).lower().strip()
+                    if label == target:
+                        return k
+                for k, v in options.items():
+                    label = str(v).lower()
+                    if re.search(rf"(?<![a-z]){re.escape(target)}(?![a-z])", label):
+                        return k
+                return list(options.keys())[0]
+
+            def pick_over_5_years(options: dict) -> str | None:
+                for k, v in options.items():
+                    label = " ".join(str(v).lower().split())
+                    compact = re.sub(r"[\s\-]+", "", label)
+                    if compact in (">5years", ">5yrs", "5+years", "5+yrs"):
+                        return k
+                    if re.search(
+                        r"\b(more than|above|over|greater than)\s*5\s*(years|yrs?)\b",
+                        label,
+                    ):
+                        return k
+                return None
+
             def pick_notice(options: dict, notice_days: int) -> str:
                 # Match the closest notice period bucket to notice_days.
                 for k, v in options.items():
@@ -292,6 +317,8 @@ class NaukriJobClient:
 
             no_hints = config.NO_QUESTION_HINTS
             relocation_hints = config.RELOCATION_HINTS
+            domain_experience_hints = getattr(config, "DOMAIN_EXPERIENCE_HINTS", [])
+            f2f_interview_hints = getattr(config, "F2F_INTERVIEW_HINTS", [])
             ai_terms = config.AI_EXPERIENCE_TERMS
 
             def is_ai_related(qtext: str) -> bool:
@@ -317,6 +344,87 @@ class NaukriJobClient:
                     t in qtext for t in time_words
                 )
 
+            def is_plain_interview_question(qtext: str) -> bool:
+                if "interview" not in qtext:
+                    return False
+                if any(h in qtext for h in f2f_interview_hints):
+                    return False
+                previous_interview_hints = (
+                    "interviewed before",
+                    "interviewed earlier",
+                    "previously interviewed",
+                    "previous interview",
+                    "interview before",
+                    "interview earlier",
+                )
+                return not any(h in qtext for h in previous_interview_hints)
+
+            def is_domain_experience_question(qtext: str) -> bool:
+                if not any(h in qtext for h in domain_experience_hints):
+                    return False
+
+                def has_phrase(phrase: str) -> bool:
+                    return bool(
+                        re.search(
+                            rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])",
+                            qtext,
+                        )
+                    )
+
+                company_history_words = (
+                    "company",
+                    "organization",
+                    "organisation",
+                    "employer",
+                    "employee",
+                    "with us",
+                    "for us",
+                    "at us",
+                    "here",
+                    "ex-employee",
+                    "ex employee",
+                    "former employee",
+                    "previously employed",
+                    "previously associated",
+                    "applied before",
+                    "applied earlier",
+                    "interviewed before",
+                    "interviewed earlier",
+                    "relatives",
+                    "criminal",
+                )
+                company_history_actions = (
+                    "worked",
+                    "employed",
+                    "associated",
+                    "applied",
+                    "interviewed",
+                    "relative",
+                    "criminal",
+                )
+                if any(has_phrase(w) for w in company_history_words) and any(
+                    has_phrase(a) for a in company_history_actions
+                ):
+                    return False
+                return any(
+                    h in qtext
+                    for h in (
+                        "have you",
+                        "do you",
+                        "are you",
+                        "worked",
+                        "experience",
+                        "exposure",
+                        "familiar",
+                        "knowledge",
+                        "handled",
+                        "built",
+                        "developed",
+                        "client",
+                        "project",
+                    )
+                )
+
             for q in questionnaire:
                 qid   = q["questionId"]
                 qtext = (q.get("questionName") or "").lower()
@@ -334,11 +442,20 @@ class NaukriJobClient:
                     for h in ("master", "post graduat", "postgraduat", "post-graduat",
                               "pg degree", "m.tech", "mtech", "m.sc", "msc", "mba", "phd")
                 )
+                is_domain_experience = is_domain_experience_question(qtext)
+                is_gender_q = "gender" in qtext
+                is_plain_interview = is_plain_interview_question(qtext)
 
                 if qtype == "text box":
-                    if is_no_question or is_masters_q:
+                    if (is_no_question and not is_domain_experience) or is_masters_q:
                         ans = "No"
+                    elif is_gender_q:
+                        ans = profile.get("gender", "Male")
+                    elif is_domain_experience:
+                        ans = "Yes"
                     elif is_relocation:
+                        ans = "Yes"
+                    elif is_plain_interview:
                         ans = "Yes"
                     elif "linkedin" in qtext:
                         ans = profile.get("linkedin_url", "")
@@ -368,9 +485,18 @@ class NaukriJobClient:
 
                 else:
                     if options:
-                        if is_no_question or is_masters_q:
+                        over_5_years_key = pick_over_5_years(options)
+                        if (is_no_question and not is_domain_experience) or is_masters_q:
                             key = pick_no(options)
+                        elif is_gender_q:
+                            key = pick_gender(options, profile.get("gender", "Male"))
+                        elif over_5_years_key is not None:
+                            key = over_5_years_key
+                        elif is_domain_experience:
+                            key = pick_yes(options)
                         elif is_relocation:
+                            key = pick_yes(options)
+                        elif is_plain_interview:
                             key = pick_yes(options)
                         elif is_joining_question(qtext):
                             key = pick_notice(options, profile["notice_days"])
@@ -392,9 +518,15 @@ class NaukriJobClient:
                         # Option-type answers must always be wrapped in a list.
                         ans = [key]
                     else:
-                        if is_no_question or is_masters_q:
+                        if (is_no_question and not is_domain_experience) or is_masters_q:
                             ans = "No"
+                        elif is_gender_q:
+                            ans = profile.get("gender", "Male")
+                        elif is_domain_experience:
+                            ans = "Yes"
                         elif is_relocation:
+                            ans = "Yes"
+                        elif is_plain_interview:
                             ans = "Yes"
                         else:
                             ans = ai_text_answer(q.get("questionName") or "") \

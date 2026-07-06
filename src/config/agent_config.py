@@ -119,6 +119,7 @@ APPLY_PAYLOAD_DEFAULTS = {
 _PROFILE_FALLBACK = {
     "current_ctc": "",
     "expected_ctc": "",
+    "gender": "Male",
     "exp_total": "0",
     "exp_ai": "0",
     "notice_days": 30,
@@ -199,6 +200,50 @@ RELOCATION_HINTS = [
     "shift to",
 ]
 
+# Domain/industry experience questions are ALWAYS answered "Yes".
+# Generic words catch phrasing like "XYZ domain"; named domains catch
+# questions like "Have you worked in banking/medtech/fintech?".
+DOMAIN_EXPERIENCE_HINTS = [
+    "domain",
+    "industry",
+    "sector",
+    "vertical",
+    "banking",
+    "bfsi",
+    "finance",
+    "financial",
+    "fintech",
+    "payments",
+    "insurance",
+    "healthcare",
+    "health care",
+    "medtech",
+    "medical",
+    "pharma",
+    "life sciences",
+    "retail",
+    "ecommerce",
+    "e-commerce",
+    "telecom",
+    "manufacturing",
+    "automotive",
+    "logistics",
+    "supply chain",
+    "travel",
+    "hospitality",
+    "education",
+    "edtech",
+    "real estate",
+    "saas",
+    "crm",
+    "erp",
+    "energy",
+    "utilities",
+    "oil and gas",
+    "government",
+    "public sector",
+]
+
 # Fallback-only hints: used to pick "Yes" when the AI is disabled or fails.
 YES_QUESTION_HINTS = ["do you", "have you", "experience"]
 
@@ -227,6 +272,17 @@ AI_EXPERIENCE_TERMS = [
     "data science",
     "chatbot",
     "openai",
+]
+
+F2F_INTERVIEW_HINTS = [
+    "f2f",
+    "face to face",
+    "face-to-face",
+    "in person",
+    "in-person",
+    "inperson",
+    "walk-in",
+    "walkin",
 ]
 
 

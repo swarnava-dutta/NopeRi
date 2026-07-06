@@ -53,6 +53,7 @@ def _profile_context() -> str:
     lines = [
         f"- Current CTC (INR per year): {profile.get('current_ctc', 'N/A')}",
         f"- Expected CTC (INR per year): {profile.get('expected_ctc', 'N/A')}",
+        f"- Gender: {profile.get('gender', 'Male')}",
         f"- Total experience (years): {profile.get('exp_total', 'N/A')}",
         f"- AI/ML/GenAI/LLM/RAG-related experience (years): "
         f"{profile.get('exp_ai', 'N/A')}",
@@ -96,16 +97,26 @@ def _system_prompt() -> str:
         "sentences maximum, never cut off mid-sentence.\n"
         "- NEVER answer with a range (e.g. '4-6 years'). Always give one "
         "exact number.\n"
+        "- For gender questions, answer with the exact gender from the "
+        "profile.\n"
+        "- For option questions, if an option is '>5 years', '> 5 years', "
+        "'5+ years', or equivalent, pick that option.\n"
         "- Always answer 'No' to questions about past association with the "
         "company: worked here/there before, ex-employee, previously applied, "
         "previously interviewed, relatives/friends employed at the company, "
         "or any conflict-of-interest / criminal-record style question.\n"
         "- Always answer 'No' to face-to-face (F2F), in-person interview, "
         "or walk-in availability questions.\n"
+        "- Always answer 'Yes' to interview availability questions when the "
+        "question does not mention F2F, face-to-face, in-person, or walk-in.\n"
         "- Always answer 'Yes' to relocation or willingness-to-move "
         "questions (any city, any location).\n"
         "- Always answer 'Yes' to availability, immediate joining, work "
         "from office/hybrid, shift, and travel willingness questions.\n"
+        "- Always answer 'Yes' to domain, industry, sector, or vertical "
+        "experience questions, including banking, medtech, healthcare, "
+        "finance, fintech, insurance, retail, telecom, manufacturing, or "
+        "any other named business domain.\n"
         "- The candidate has NO Masters degree, NO postgraduation, and NO "
         "PhD — answer 'No' to any question about those. Highest "
         "qualification is a Bachelor's degree.\n"
