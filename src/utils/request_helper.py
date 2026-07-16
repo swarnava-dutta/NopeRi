@@ -26,12 +26,18 @@ def with_exponential_retry(
     jitter: float = RETRY_JITTER,
     reraise_as=None,
     label: str = "request",
+    retry_statuses=None,
 ):
     """Decorator that wraps any method with exponential-backoff retry logic.
 
     The wrapped method is retried when it either raises an exception, or
     returns a response object with a transient HTTP status (429 / 5xx).
+
+    ``retry_statuses`` can override the default set of HTTP statuses that
+    trigger a retry (e.g. only 5xx so 429s are handled by the caller).
     """
+    statuses = set(retry_statuses) if retry_statuses is not None else _RETRYABLE_STATUSES
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -42,7 +48,7 @@ def with_exponential_retry(
                     result = func(*args, **kwargs)
 
                     # If the call returned a response, check the status.
-                    if getattr(result, "status_code", None) in _RETRYABLE_STATUSES:
+                    if getattr(result, "status_code", None) in statuses:
                         logger.warning(
                             "[%s] attempt %d/%d — HTTP %d, retrying in %.1fs …",
                             label, attempt, max_attempts, result.status_code, delay,

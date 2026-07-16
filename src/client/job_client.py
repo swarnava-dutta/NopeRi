@@ -6,9 +6,12 @@ Handles job search, recommendations, and apply workflows:
 - Attaches the required signed ``nkparam`` header (403 without it)
 - Parses raw API responses into the Job model
 - Handles common failure cases (403, 406, 429, malformed JSON)
+- Retries transient 5xx "System Error" responses with backoff
 """
 
 import logging
+import random
+import time
 from datetime import datetime, timezone
 
 from src.client.naukri_client import NaukriLoginClient
@@ -69,6 +72,12 @@ class NaukriJobClient:
         return headers
 
     @staticmethod
+    def _snippet(text: str, limit: int = 300) -> str:
+        """Compact a response body for error messages (5xx pages are huge HTML)."""
+        text = " ".join((text or "").split())
+        return text[:limit] + ("…" if len(text) > limit else "")
+
+    @staticmethod
     def _check_auth_response(res, action: str) -> None:
         """Raise on auth failures / rate limits; register 403/429 blocks."""
         if res.status_code in (401, 403, 429):
@@ -77,18 +86,51 @@ class NaukriJobClient:
             try:
                 msg = res.json().get("message", "Auth failed")
             except Exception:
-                msg = res.text
+                msg = NaukriJobClient._snippet(res.text)
             raise NaukriAuthError(msg)
 
         if not res.ok:
-            raise NaukriParseError(f"{action} failed: {res.status_code} — {res.text}")
+            raise NaukriParseError(
+                f"{action} failed: {res.status_code} — {NaukriJobClient._snippet(res.text)}"
+            )
 
     @staticmethod
     def _json_or_raise(res) -> dict:
         try:
             return res.json()
         except Exception:
-            raise NaukriParseError(f"Invalid JSON response: {res.text}")
+            raise NaukriParseError(
+                f"Invalid JSON response: {NaukriJobClient._snippet(res.text)}"
+            )
+
+    @staticmethod
+    def _retry_transient(send, action: str):
+        """Run ``send()`` and retry on transient server errors (HTTP 5xx).
+
+        Naukri's job APIs randomly throw 500 "System Error" HTML pages even
+        for perfectly valid requests — a flaky backend, not a client bug.
+        Retries with exponential backoff + jitter; non-5xx responses are
+        returned immediately for normal handling.
+        """
+        attempts = max(1, config.TRANSIENT_RETRY_ATTEMPTS)
+        res = None
+        for attempt in range(1, attempts + 1):
+            res = send()
+            if res.status_code < 500:
+                return res
+            if attempt < attempts:
+                wait = min(
+                    config.TRANSIENT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
+                    config.TRANSIENT_RETRY_MAX_SECONDS,
+                ) + random.uniform(0.5, 2.0)
+                logger.debug(
+                    "%s got HTTP %s (attempt %d/%d) — retrying in %.1fs",
+                    action, res.status_code, attempt, attempts, wait,
+                )
+                print(f"🔁 {action}: server error {res.status_code}, retrying in {wait:.0f}s "
+                      f"({attempt}/{attempts - 1})...")
+                time.sleep(wait)
+        return res
 
     def _parse_job(self, raw: dict) -> Job:
         # Extract location from the placeholders list if present.
@@ -181,7 +223,10 @@ class NaukriJobClient:
         )
 
         humanizer.pace("job_details")
-        res = self._session.get(f"{JOB_DETAILS_URL}/{job_id}", headers=headers, params=params)
+        res = self._retry_transient(
+            lambda: self._session.get(f"{JOB_DETAILS_URL}/{job_id}", headers=headers, params=params),
+            "Job details fetch",
+        )
         self._check_auth_response(res, "Job details fetch")
         return self._json_or_raise(res)
 
@@ -209,10 +254,13 @@ class NaukriJobClient:
         payload = self._build_apply_payload(job, sid, source, mandatory_skills, optional_skills)
 
         humanizer.pace("apply")
-        res = self._session.post(
-            APPLY_JOB_URL,
-            headers=self._api_headers(systemid="jobseeker"),
-            json=payload,
+        res = self._retry_transient(
+            lambda: self._session.post(
+                APPLY_JOB_URL,
+                headers=self._api_headers(systemid="jobseeker"),
+                json=payload,
+            ),
+            "Apply",
         )
         self._check_auth_response(res, "Apply")
         return self._json_or_raise(res)
@@ -240,10 +288,13 @@ class NaukriJobClient:
         payload["applyData"] = {job.job_id: {"answers": answers}}
 
         humanizer.pace("questionnaire_apply")
-        res = self._session.post(
-            APPLY_JOB_URL,
-            headers=self._client._build_headers(auth=True),
-            json=payload,
+        res = self._retry_transient(
+            lambda: self._session.post(
+                APPLY_JOB_URL,
+                headers=self._client._build_headers(auth=True),
+                json=payload,
+            ),
+            "Questionnaire apply",
         )
 
         if res.status_code in (403, 429):
@@ -253,7 +304,7 @@ class NaukriJobClient:
             logger.debug("Apply failed: %s", res.text)
             return {
                 "success": False,
-                "error": res.text,
+                "error": f"{res.status_code} — {self._snippet(res.text)}",
                 "_questionnaire_answers": records,
             }
 
@@ -274,19 +325,22 @@ class NaukriJobClient:
     def get_recommended_jobs(self) -> list[Job]:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         humanizer.pace("recommended")
-        res = self._session.post(
-            RECOMMENDED_JOBS_URL,
-            headers=self._client._build_headers(auth=True),
-            json={
-                "clusterId":        None,
-                "src":              "recommClusterApi",
-                "clusterSplitDate": {
-                    "apply":        now,
-                    "preference":   now,
-                    "profile":      now,
-                    "similar_jobs": now,
+        res = self._retry_transient(
+            lambda: self._session.post(
+                RECOMMENDED_JOBS_URL,
+                headers=self._client._build_headers(auth=True),
+                json={
+                    "clusterId":        None,
+                    "src":              "recommClusterApi",
+                    "clusterSplitDate": {
+                        "apply":        now,
+                        "preference":   now,
+                        "profile":      now,
+                        "similar_jobs": now,
+                    },
                 },
-            },
+            ),
+            "Recommended jobs fetch",
         )
 
         if not res.ok:
@@ -327,7 +381,10 @@ class NaukriJobClient:
         }
 
         humanizer.pace("search")
-        res = self._session.get(JOB_SEARCH_URL, headers=self._search_headers(), params=params)
+        res = self._retry_transient(
+            lambda: self._session.get(JOB_SEARCH_URL, headers=self._search_headers(), params=params),
+            "Search",
+        )
 
         if res.status_code == 403:
             humanizer.register_block(res.status_code)
@@ -342,7 +399,9 @@ class NaukriJobClient:
             return []
 
         if not res.ok:
-            raise NaukriParseError(f"Search failed: {res.status_code} — {res.text}")
+            raise NaukriParseError(
+                f"Search failed: {res.status_code} — {self._snippet(res.text)}"
+            )
 
         data = res.json()
         raw_jobs = data.get("jobDetails") or data.get("jobs") or []

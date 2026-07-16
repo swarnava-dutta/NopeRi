@@ -86,6 +86,13 @@ MAX_BLOCKS_BEFORE_ABORT = 3
 SHUFFLE_SEARCH_QUERIES = True          # shuffle query order each run
 DAILY_LIMIT_JITTER = 5                 # daily limit +/- this amount per run
 
+# Transient server error (5xx) retry: Naukri's job APIs randomly return
+# HTTP 500 "System Error" HTML pages (flaky backend, not a client problem).
+# Retry with exponential backoff + jitter before failing the job.
+TRANSIENT_RETRY_ATTEMPTS = 3           # total attempts per request
+TRANSIENT_RETRY_BASE_SECONDS = 3.0     # first retry wait (doubles each retry)
+TRANSIENT_RETRY_MAX_SECONDS = 20.0     # cap on any single retry wait
+
 
 # ---------------------------------------------------------------------------
 # Apply settings
