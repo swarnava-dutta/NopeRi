@@ -214,6 +214,9 @@ def _answer_one(q: dict, profile: dict, profile_skills: list[str]):
             return profile.get("github_url", "")
         if "phone" in qtext or "mobile" in qtext or "contact number" in qtext:
             return profile.get("phone", "")
+        if ("current company" in qtext or "current employer" in qtext
+                or "present company" in qtext or "present employer" in qtext):
+            return profile.get("current_company", "")
         if ("current location" in qtext or "current city" in qtext
                 or "where are you" in qtext or "based out of" in qtext
                 or "residing" in qtext

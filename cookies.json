@@ -77,7 +77,7 @@
   },
   {
     "name": "bm_sv",
-    "value": "0D97FD98BBD780F7E921C954C7BD682E~YAAQhonTF6r5uV6fAQAA9V2daAAUOuUuW+GzI6m/lt76paCliKITnVXe5R1hDOb3iokxBNs111RGFnvoiVDjnV7yZ66CvmWsS/tf84PU42Rky3x1J5B/VSyjs8wMUV1u4VUHRM10sWZAVqk+O6/PmWZ0OMq7c0I689U3fIXmDB8RDeCyAV0fdIxCQa+oBejQ6eF+QbkvLjdpA1Y6Ss5QQSm5Zjs3Hy0Blmq5V/G1yT5d6LYveu0NPe+ECfeNQurV~1",
+    "value": "0D97FD98BBD780F7E921C954C7BD682E~YAAQhonTF7qkwF6fAQAAyuvIaACIDJrKhLvUjiL1VA5yiErBGgzLa9yQbPBX48ZPvcwLCOw8dqt1JuZB5GYbKZ5x2I4DpaIfPhhM4obTYSWbshdPtSJoIIWlAff6DrrPCTCP3KAgwim/be3HsYqm4mtUYG/koVYjiHdPFxMSVqX5yY4lUNLxZ9lwblBgjGpmlIukrWp1HSV7BBgIgC/SZtZ0kmdyhfpNeLaMcchRY5O+iHyi0WtoKKaaN/vbFJRB~1",
     "domain": ".naukri.com",
     "path": "/",
     "secure": true,
@@ -179,7 +179,7 @@
     "session": false,
     "storeId": "0",
     "value": "aurus",
-    "expirationDate": 1784166571.0
+    "expirationDate": 1784169425.0
   },
   {
     "domain": ".naukri.com",
@@ -192,7 +192,7 @@
     "session": false,
     "storeId": "0",
     "value": "default",
-    "expirationDate": 1784166571.0
+    "expirationDate": 1784169425.0
   },
   {
     "domain": ".naukri.com",

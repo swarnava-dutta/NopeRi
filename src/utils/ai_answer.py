@@ -58,6 +58,7 @@ def _profile_context() -> str:
         f"- AI/ML/GenAI/LLM/RAG-related experience (years): "
         f"{profile.get('exp_ai', 'N/A')}",
         f"- Notice period (days): {profile.get('notice_days', 'N/A')}",
+        f"- Current company / employer: {profile.get('current_company', 'N/A')}",
         f"- Current location / city: {profile.get('current_location', 'N/A')}",
         f"- Phone number: {profile.get('phone', 'N/A')}",
         f"- Email (default, for everything except TCS): "

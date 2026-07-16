@@ -130,6 +130,7 @@ _PROFILE_FALLBACK = {
     "exp_total": "0",
     "exp_ai": "0",
     "notice_days": 30,
+    "current_company": "",
     "current_location": "",
     "phone": "",
     "email": "",
