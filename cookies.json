@@ -66,24 +66,24 @@
   },
   {
     "name": "ak_bmsc",
-    "value": "04750EB6FDC9AFE5CF1DA1E67EB26243~000000000000000000000000000000~YAAQhonTFzd5G2GfAQAAeM9/bwC5/LjZ7IJLCiduvQskLQuePJ8JRJ9Tec1/UHpmmFTiqH2ItW6fQtIRJiVcdoVnFRcd+vDlcfQS94MD4jryVrauwE0xUvbHKb4lnOD6tqK3Q3qH7wRlaXSWfGEAyHLi2CKWQEeQ6Z3ZjllMlGZjRk21CO4dK31NBBzjgizI5M3hmOHFRveh9TAOdCQ9yYLB1naZDm8Dqas3NO7rjVDZN7nhg8cieArlcXCx8sVBEeF8PupJTGiE0qjYKdNYZHqMgvMNK6YBisXa1M1ua1pqJaLPiDJ7KMlA7W+UB4KT64dHY4/aRG+9cAjHkboW7epNl/zjozcDAGPDuh7yllLqZOmmFJ98z9qRyB0EqtDJrEXA+8dVwDjRdFQweO5O0PDBIJ0GLMqGseNKtyU=",
+    "value": "2280B65ECCBD1A6402DD6875BAF044DB~000000000000000000000000000000~YAAQhonTFxKPc2KfAQAAMD18egBmwtiAwIvE8Fr9RmNV1Grr35wqpE8L6cM0OoifcL2iLtWnvcArsfD1KMTb33UB1CjJ6QZKLsMOh2FamF/PdepN6/ko+oFyNDKY3eTuUklMFK36QylsUYXsOA/hkr7ko76/JDFhlWY+OsmF0ERf/t42LmAFCVmBoDtDAGmJcIhezVFWNp44XPI5G85QhoCADoeM3juz93+zrFFPmP/+xgiiqwkyADBHt4vd8DyG4NkC9G8FOumhsETbcZu2efHMWIPDY0iXJe6/WBv0cgK94uHTV6Dh3Fsky1e/gDgUdI5ff6PEvcq+L/JsbTjqjRhS/ZXU55qFPlIyA+5sXwNEgvPkbbJCWEH2GEkfYAQbN90Qrsw3xYzWRXEtR5yZ/J4y3DY/GQWCbs3BfS0=",
     "domain": ".naukri.com",
     "path": "/",
     "secure": false,
     "httpOnly": true,
     "sameSite": "None",
-    "expirationDate": 1784289274.0,
+    "expirationDate": 1784473589.0,
     "session": false
   },
   {
     "name": "bm_sv",
-    "value": "514F4B824AAF3ED9B602DCB90BAD6DE8~YAAQhonTFzh5G2GfAQAAeM9/bwAK5NK7Do6XH8xQeV/ONUhLN9v/46w3fpA1+5sHehYkeOcAmzo54fXwUSOeEvkiM0queaPt+CAZjNg9uZWdicw+farJ/Imr/9+ik1OjBtJsdRjaVSHElGaBzm3WhW/0J9Yt5E4pKwUQXj+YybfUAqSR5fQ5g87YbsvM8No1HHZX7D339J4Ywje3DqMENZp2jbzrPlbMEXgJOa2cPJQL2r1n/ICI2l0hOEx6FE9g~1",
+    "value": "E833C6F3010C7775D4329065C5E46A88~YAAQhonTFxSPc2KfAQAAMD18egAUX/bOZTFLa539/qNKyMrEdrMB7JuV97vYOmfmPf9YPR1TCcVP6iIyQrfuIe0/c3bt2As5Z5dMipJGorBJzQjxzgwZLx7PxuB6bD9pj/MLhw9yyEmIU2G7cEat51PJuMCOCXzcpfYnzCm7d6aUpHATB2rMd9eOEXRSxr0+3J3FQc9RQSNZZE5cyHP1J2GEHlhT7Rdl0ivZzlKwAvEWszeSEy1sk4OZW8ulkKE+~1",
     "domain": ".naukri.com",
     "path": "/",
     "secure": true,
     "httpOnly": false,
     "sameSite": "None",
-    "expirationDate": 1784289274.0,
+    "expirationDate": 1784473590.0,
     "session": false
   },
   {
@@ -112,18 +112,18 @@
     "secure": true,
     "httpOnly": true,
     "sameSite": "None",
-    "expirationDate": 1784285674.0,
+    "expirationDate": 1784469989.0,
     "session": false
   },
   {
     "name": "nauk_at",
-    "value": "eyJraWQiOiIzIiwidHlwIjoiSldUIiwiYWxnIjoiUlM1MTIifQ.eyJkZXZpY2VUeXBlIjoiZDNza3QwcCIsInVkX3Jlc0lkIjoxNTA2MTI0MjUsInN1YiI6IjE2MDc5NTgwNyIsInVkX3VzZXJuYW1lIjoic3dhcm5hdmEuZHV0dGE5N0BnbWFpbC5jb20iLCJ1ZF9pc0VtYWlsIjp0cnVlLCJpc3MiOiJJbmZvRWRnZSBJbmRpYSBQdnQuIEx0ZC4iLCJ1c2VyQWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTQ3LjAuMC4wIFNhZmFyaS81MzcuMzYiLCJpcEFkcmVzcyI6IjEwMy4xOTUuNzMuNjEiLCJ1ZF9pc1RlY2hPcHNMb2dpbiI6ZmFsc2UsInVzZXJJZCI6MTYwNzk1ODA3LCJzdWJVc2VyVHlwZSI6IiIsInVzZXJTdGF0ZSI6IkFVVEhFTlRJQ0FURUQiLCJ1ZF9pc1BhaWRDbGllbnQiOmZhbHNlLCJ1ZF9lbWFpbFZlcmlmaWVkIjp0cnVlLCJ1c2VyVHlwZSI6ImpvYnNlZWtlciIsInNlc3Npb25TdGF0VGltZSI6IjIwMjYtMDQtMTlUMTE6Mjc6MDIiLCJ1ZF9lbWFpbCI6InN3YXJuYXZhZHV0dGEub2ZmaWNpYWxAZ21haWwuY29tIiwidXNlclJvbGUiOiJ1c2VyIiwiZXhwIjoxNzg0Mjg1Njc0LCJ0b2tlblR5cGUiOiJhY2Nlc3NUb2tlbiIsImlhdCI6MTc4NDI4MjA3NCwianRpIjoiZmY1ZjFkMjNhN2MwNDQ2MDlhY2M1ZDA0MGFhOWY3YmMiLCJwb2RJZCI6InByb2QtNWJiYzZiYjU5Yi1zcmp2cCJ9.SmaxYuLGgk2nprcRyD4awpI9l-SyHaZnq1Agv8AdVxsmaLb-HObEEyYk76CyK_zJW1fvgoIztfuAuliaaI-sGj6gDESnehD6PYNIjF9rf1bMbLHhGLqZ-_PvQJNUW-Rg9zZqyyzs-o05ag0bTCUsbVuWH7SX9HqCXUBzR8wCbDDVqfvXAS9v8TriKpdAnkvkPQxjkTGTBMslxdo5ufJpViaTby3zSRTTf3Josnp5V1HICZ4TVmB-ukBsAoCfmPzVaEgNmk4KkIeVgwjp3vlg32K8XEz-LVQFuDiU-ezy_NteJN93L8YULzTrDbEXEUpT0z3K_WhtuAHANAJbcR3qUA",
+    "value": "eyJraWQiOiIzIiwidHlwIjoiSldUIiwiYWxnIjoiUlM1MTIifQ.eyJkZXZpY2VUeXBlIjoiZDNza3QwcCIsInVkX3Jlc0lkIjoxNTA2MTI0MjUsInN1YiI6IjE2MDc5NTgwNyIsInVkX3VzZXJuYW1lIjoic3dhcm5hdmEuZHV0dGE5N0BnbWFpbC5jb20iLCJ1ZF9pc0VtYWlsIjp0cnVlLCJpc3MiOiJJbmZvRWRnZSBJbmRpYSBQdnQuIEx0ZC4iLCJ1c2VyQWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBDaHJvbWUvMTQ3LjAuMC4wIFNhZmFyaS81MzcuMzYiLCJpcEFkcmVzcyI6IjEwMy4xOTUuNzMuNjEiLCJ1ZF9pc1RlY2hPcHNMb2dpbiI6ZmFsc2UsInVzZXJJZCI6MTYwNzk1ODA3LCJzdWJVc2VyVHlwZSI6IiIsInVzZXJTdGF0ZSI6IkFVVEhFTlRJQ0FURUQiLCJ1ZF9pc1BhaWRDbGllbnQiOmZhbHNlLCJ1ZF9lbWFpbFZlcmlmaWVkIjp0cnVlLCJ1c2VyVHlwZSI6ImpvYnNlZWtlciIsInNlc3Npb25TdGF0VGltZSI6IjIwMjYtMDQtMTlUMTE6Mjc6MDIiLCJ1ZF9lbWFpbCI6InN3YXJuYXZhZHV0dGEub2ZmaWNpYWxAZ21haWwuY29tIiwidXNlclJvbGUiOiJ1c2VyIiwiZXhwIjoxNzg0NDY5OTg5LCJ0b2tlblR5cGUiOiJhY2Nlc3NUb2tlbiIsImlhdCI6MTc4NDQ2NjM4OSwianRpIjoiZmY1ZjFkMjNhN2MwNDQ2MDlhY2M1ZDA0MGFhOWY3YmMiLCJwb2RJZCI6InByb2QtNWJiYzZiYjU5Yi1yazRrdiJ9.MlGfn2QcKv8VQsUnj5qCnzNB9p-NjF3xDS0ZiVzsuc5_MR42XxhLlouaNIctmfixHD-vxw4Ks21KbYQ5syKzOoiJfizZwUF68dK4iAGcgvcfUZYgdRZyKRd_bz1r8vu0UUX9EJVUpvVyCdAwra-2Vy1HOC9u-VSofNsmTf_9J3dVnBpORDN-M3HrDFZp1vySfP7Dq1oe2hM-Y97diPuFw2vrb45-5AmYk_wtbVmYCLB0S_nLqnN1Cw3zRYi8NpOo3QbGLU0Sm2K1CGjWtRpLSaMq5xY8cuRydjtpiCgiK_NI-ym7mt40KugmIrxFihLA0N9DPUDYoX5H8A227766iA",
     "domain": ".naukri.com",
     "path": "/",
     "secure": true,
     "httpOnly": false,
     "sameSite": "None",
-    "expirationDate": 1784285674.0,
+    "expirationDate": 1784469989.0,
     "session": false
   },
   {
@@ -179,7 +179,7 @@
     "session": false,
     "storeId": "0",
     "value": "aurus",
-    "expirationDate": 1784169425.0
+    "expirationDate": 1784466390.0
   },
   {
     "domain": ".naukri.com",
@@ -192,7 +192,7 @@
     "session": false,
     "storeId": "0",
     "value": "default",
-    "expirationDate": 1784169425.0
+    "expirationDate": 1784466390.0
   },
   {
     "domain": ".naukri.com",
@@ -217,7 +217,7 @@
     "secure": true,
     "session": false,
     "storeId": "0",
-    "value": "7330A2F2B49CA65A86068E48194AD1D5~YAAQhonTF6n5uV6fAQAA9V2daACwNe6gNOo4fJfGIPjWpXo/VZFhMzLRvm8Q4HlDifsjHAPlCCkeNKKV4RX5EOygXxS+EKdczFcilE7c0NHL57XFhY+itewsjgqb7vsglrlUl17+aD978nQBBRWgVT90LBO+8EdB7xD0r14Jkukp8L9wrlP7ZxB9R2AFY3zcTwHgIQdY++nzFFomVsQrwY47mruD9u8BmrsxDM7Enp8cmtVECa3dRJfauLbDEU4LumNTytDC74hsx2nNQddCFQsmewnAGmDXbbol8N6DAU6WXexWwcoOmL7+yPSNzVrJir7Ly5NesYTmUK4TJw==~1",
-    "expirationDate": 1784166571.0
+    "value": "8E7F6581174B3113C5008A403FAB65E7~YAAQhonTFxOPc2KfAQAAMD18egB2tYKic4ixpJf3aaXHKGxKk8fWmUho6wA2oL2mFItYK7JhH2SUHkHbAkdIgipa7fHyYab8tAJAxRK5xgUWockxHj1AKRf2/eiexvnyelauIv9KNArtshCBF0Sjc8CfC8MgFNZDFLBkuyDC811LKjTvbiYQ+KSlTELaj+YkA7hDOQCkOw9VA65i0WsaSb+1sV00xa0KdA508TJ1llA0OKC7xL4KmSGKVTFNMRQbfLclNfNmlKBDwmXL/IK7Ug9yJ3Ls59bMJRYRMbkTxiBkj/iHnw3I3xY9EjqYTKOuXS9VKHiqBXh/KTWTxg==~1",
+    "expirationDate": 1784466390.0
   }
 ]
