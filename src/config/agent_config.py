@@ -30,6 +30,7 @@ RUN_SEARCH_PHASE = True
 DOCUMENT_EXTERNAL_LINKS = True
 
 SEARCH_QUERIES = [
+    {"keyword": "Forward Deployed Engineer", "location": ""},
     {"keyword": "AI Engineer", "location": ""},
     {"keyword": "Artificial Intelligence Engineer", "location": ""},
     {"keyword": "Gen AI Engineer", "location": ""},
@@ -39,7 +40,7 @@ SEARCH_QUERIES = [
 ]
 
 EXPERIENCE_LEVELS = [5]
-SEARCH_PAGES = 1
+SEARCH_PAGES = 3
 JOB_AGE_DAYS = 1
 DAILY_APPLY_LIMIT = 50
 
@@ -76,6 +77,24 @@ LONG_BREAK_PROBABILITY = 0.08
 LONG_BREAK_MIN_SECONDS = 20
 LONG_BREAK_MAX_SECONDS = 90
 
+# Session fatigue: humans slow down the longer they browse. Every processed
+# job stretches all delays a little, up to the cap.
+FATIGUE_RAMP_PER_JOB = 0.02            # +2% delay per processed job
+FATIGUE_MAX_MULTIPLIER = 1.6           # never slower than 1.6x base delays
+
+# Window shopping: occasionally open a job, read it, and just move on
+# without applying (a strong human signal — bots apply to 100% of views).
+# Skipped jobs stay eligible for future runs and never consume the limit.
+WINDOW_SHOPPING_PROBABILITY = 0.04
+
+# Reading pause scales with JD length — longer descriptions take longer.
+READING_SECONDS_PER_1000_CHARS = 2.0   # extra seconds per 1000 JD chars
+READING_PAUSE_EXTRA_MAX_SECONDS = 8.0  # cap on length-based extra time
+
+# Humans don't apply strictly top-to-bottom: each job may drift up to this
+# many positions in the apply order (0 = keep exact search order).
+JOB_ORDER_DRIFT = 3
+
 # 403/429 defense: randomized cooldown (escalates per block), lasting
 # slowdown cap, and hard abort after too many blocks.
 BLOCK_COOLDOWN_MIN_SECONDS = 60
@@ -84,7 +103,7 @@ MAX_BLOCK_PENALTY_SECONDS = 30.0
 MAX_BLOCKS_BEFORE_ABORT = 3
 
 SHUFFLE_SEARCH_QUERIES = True          # shuffle query order each run
-DAILY_LIMIT_JITTER = 5                 # daily limit +/- this amount per run
+DAILY_LIMIT_JITTER = 3                 # daily limit +/- this amount per run (anti-pattern: never exactly N daily)
 
 # Transient server error (5xx) retry: Naukri's job APIs randomly return
 # HTTP 500 "System Error" HTML pages (flaky backend, not a client problem).

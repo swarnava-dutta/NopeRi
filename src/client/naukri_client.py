@@ -89,6 +89,14 @@ class NaukriLoginClient:
         if auth:
             if not self.naukri_session:
                 raise NaukriAuthError("Login required")
+            # nauk_at is a short-lived JWT that Naukri rotates mid-session
+            # (set-cookie auto-updates the jar). Always send the live cookie
+            # value so the bearer never goes stale during a long run —
+            # a stale bearer gets 403 "Invalid User" from the apply API.
+            live_token = self._get_cookie_value("nauk_at")
+            if live_token and live_token != self.naukri_session.bearer_token:
+                logger.debug("nauk_at rotated — updating bearer token")
+                self.naukri_session.bearer_token = live_token
             headers["authorization"] = f"Bearer {self.naukri_session.bearer_token}"
             headers["systemid"] = "Naukri"
         if extra:
@@ -283,6 +291,28 @@ class NaukriLoginClient:
 
     def _has_usable_access_cookie(self):
         return bool(self._get_cookie_value("nauk_at")) and not self._cookie_expires_soon("nauk_at")
+
+    def refresh_session_token(self) -> bool:
+        """Mid-run recovery for an expired/rotated nauk_at (403 "Invalid User").
+
+        Re-visits the cookie-refresh URLs so the server issues a fresh
+        access token, updates the bearer, and persists the cookies for the
+        next run. Returns True only if a *different* usable token was
+        obtained (retrying with the same token would be pointless).
+        """
+        if not self.naukri_session:
+            return False
+        before = self.naukri_session.bearer_token
+        self._refresh_cookie_session()
+        token = self._get_cookie_value("nauk_at")
+        if not token or token == before:
+            return False
+        self.naukri_session.bearer_token = token
+        try:
+            self.save_cookies()
+        except Exception:
+            logger.debug("Could not persist refreshed cookies", exc_info=True)
+        return True
 
     def _refresh_cookie_session(self):
         before = self._get_cookie_value("nauk_at")

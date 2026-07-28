@@ -5,6 +5,7 @@ STATS_KEYS = (
     "skipped_ext",
     "skipped_applied",
     "skipped_blocked",
+    "skipped_browse",
     "failed",
 )
 

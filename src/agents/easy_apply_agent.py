@@ -39,6 +39,10 @@ class EasyApplyAgent:
             print(f"ℹ️ No new {label} jobs to apply.")
             return stats
 
+        # Humans don't work strictly top-to-bottom through search results —
+        # let each job drift a few positions in the apply order.
+        pending_jobs = humanizer.light_shuffle(pending_jobs, config.JOB_ORDER_DRIFT)
+
         print(f"🚀 Applying {label}: {len(pending_jobs)} jobs")
 
         for job in pending_jobs:
@@ -53,6 +57,7 @@ class EasyApplyAgent:
                 break
 
             self._apply_one(job, source, stats)
+            humanizer.note_job()  # feeds the session-fatigue slow-down
 
             # Randomized human-like pause between applies, plus occasional
             # long "walked away" breaks.
@@ -65,54 +70,76 @@ class EasyApplyAgent:
         label_text = job_label(job)
 
         try:
-            if self.job_client.is_external_apply(job.job_id):
-                stats["skipped_ext"] += 1
-                self.external_link_agent.document(job, source)
-                print(f"❌ External link: {label_text}")
-                return
+            self._apply_core(job, source, stats, label_text)
+        except Exception as exc:
+            # A rotated/expired nauk_at mid-run surfaces as 403 "Invalid
+            # User". Refresh the session token and retry this job once —
+            # it's a stale credential, not a problem with the job.
+            if "invalid user" in str(exc).lower() and self.job_client.refresh_auth():
+                print(f"🔄 Session token refreshed — retrying: {label_text}")
+                try:
+                    self._apply_core(job, source, stats, label_text)
+                    return
+                except Exception as retry_exc:
+                    exc = retry_exc
+            stats["failed"] += 1
+            print(f"⚠️ Failed: {label_text} | {exc}")
 
-            # Human "reads" the job description before hitting apply.
-            humanizer.reading_pause()
+    def _apply_core(self, job, source: str, stats: dict, label_text: str) -> None:
+        details = self.job_client.get_job_details(job.job_id)
+        if self.job_client.is_external(details):
+            stats["skipped_ext"] += 1
+            self.external_link_agent.document(job, source)
+            print(f"❌ External link: {label_text}")
+            return
 
-            mandatory = job.tags[:config.MANDATORY_SKILL_COUNT] if job.tags else []
-            optional = (
-                job.tags[config.MANDATORY_SKILL_COUNT:]
-                if len(job.tags) > config.MANDATORY_SKILL_COUNT
-                else []
-            )
+        # Human "reads" the job description before hitting apply —
+        # longer JDs take proportionally longer.
+        jd_text = (details.get("job") or {}).get("description") or job.description or ""
+        humanizer.reading_pause(len(jd_text))
 
-            stats["attempted"] += 1
-            result = self.job_client.apply_job(
+        # Sometimes a human opens a job, reads it, and just moves on.
+        # The job stays eligible for a future run and costs no budget.
+        if humanizer.window_shopping():
+            stats["skipped_browse"] += 1
+            print(f"👀 Browsed only: {label_text}")
+            return
+
+        mandatory = job.tags[:config.MANDATORY_SKILL_COUNT] if job.tags else []
+        optional = (
+            job.tags[config.MANDATORY_SKILL_COUNT:]
+            if len(job.tags) > config.MANDATORY_SKILL_COUNT
+            else []
+        )
+
+        stats["attempted"] += 1
+        result = self.job_client.apply_job(
+            job,
+            mandatory_skills=mandatory,
+            optional_skills=optional,
+            source=source,
+        )
+
+        job_result = (result.get("jobs") or [{}])[0]
+        questionnaire_answers = []
+        if job_result.get("questionnaire"):
+            # Humans take time to fill in a questionnaire.
+            humanizer.human_delay(2.0, 8.0)
+            sid = humanizer.generate_sid()
+            questionnaire_result = self.job_client.handle_static_questionnaire_and_apply(
                 job,
+                questionnaire=job_result["questionnaire"],
+                sid=sid,
                 mandatory_skills=mandatory,
                 optional_skills=optional,
                 source=source,
             )
+            questionnaire_answers = questionnaire_result.get("_questionnaire_answers") or []
+            if questionnaire_result.get("success") is False:
+                error = questionnaire_result.get("error") or "unknown questionnaire error"
+                raise RuntimeError(f"Questionnaire apply failed: {error}")
 
-            job_result = (result.get("jobs") or [{}])[0]
-            questionnaire_answers = []
-            if job_result.get("questionnaire"):
-                # Humans take time to fill in a questionnaire.
-                humanizer.human_delay(2.0, 8.0)
-                sid = humanizer.generate_sid()
-                questionnaire_result = self.job_client.handle_static_questionnaire_and_apply(
-                    job,
-                    questionnaire=job_result["questionnaire"],
-                    sid=sid,
-                    mandatory_skills=mandatory,
-                    optional_skills=optional,
-                    source=source,
-                )
-                questionnaire_answers = questionnaire_result.get("_questionnaire_answers") or []
-                if questionnaire_result.get("success") is False:
-                    error = questionnaire_result.get("error") or "unknown questionnaire error"
-                    raise RuntimeError(f"Questionnaire apply failed: {error}")
-
-            save_applied_job(job, questionnaire_answers=questionnaire_answers)
-            self.applied_job_ids.add(job.job_id)
-            stats["applied"] += 1
-            print(f"✅ Applied: {label_text}")
-
-        except Exception as exc:
-            stats["failed"] += 1
-            print(f"⚠️ Failed: {label_text} | {exc}")
+        save_applied_job(job, questionnaire_answers=questionnaire_answers)
+        self.applied_job_ids.add(job.job_id)
+        stats["applied"] += 1
+        print(f"✅ Applied: {label_text}")

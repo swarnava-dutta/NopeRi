@@ -89,6 +89,7 @@ class NaukriApplyOrchestrator:
         print(f"✅ Applied: {self.totals['applied']}")
         print(f"⏭️ Already applied: {self.totals['skipped_applied']}")
         print(f"🚫 Blocked companies: {self.totals['skipped_blocked']}")
+        print(f"👀 Browsed only: {self.totals['skipped_browse']}")
         print(f"❌ External links: {self.totals['skipped_ext']}")
         print(f"⚠️ Failed: {self.totals['failed']}")
 

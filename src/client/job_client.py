@@ -6,6 +6,7 @@ Handles job search, recommendations, and apply workflows:
 - Attaches the required signed ``nkparam`` header (403 without it)
 - Parses raw API responses into the Job model
 - Handles common failure cases (403, 406, 429, malformed JSON)
+- Treats "page doesn't exist" 400s (code 400007) as end of results
 - Retries transient 5xx "System Error" responses with backoff
 """
 
@@ -76,6 +77,24 @@ class NaukriJobClient:
         """Compact a response body for error messages (5xx pages are huge HTML)."""
         text = " ".join((text or "").split())
         return text[:limit] + ("…" if len(text) > limit else "")
+
+    @staticmethod
+    def _page_past_end(res) -> bool:
+        """True when a 400 means the requested pageNo is past the last page.
+
+        Searches with few results have fewer pages than SEARCH_PAGES; asking
+        for a page beyond the end returns 400 with customErrorCode 400007
+        ("Requested page number doesn't exists"). That's an end-of-results
+        signal, not an error.
+        """
+        try:
+            errors = res.json().get("validationErrors") or []
+            return any(
+                err.get("field") == "pageNo" or str(err.get("customErrorCode")) == "400007"
+                for err in errors
+            )
+        except Exception:
+            return False
 
     @staticmethod
     def _check_auth_response(res, action: str) -> None:
@@ -230,10 +249,25 @@ class NaukriJobClient:
         self._check_auth_response(res, "Job details fetch")
         return self._json_or_raise(res)
 
+    def refresh_auth(self) -> bool:
+        """Recover from a stale bearer mid-run (403 'Invalid User').
+
+        Returns True if a fresh token was obtained and a retry makes sense.
+        """
+        try:
+            return self._client.refresh_session_token()
+        except Exception:
+            logger.debug("Auth refresh failed", exc_info=True)
+            return False
+
+    @staticmethod
+    def is_external(details: dict) -> bool:
+        """True if the job details say apply happens on an external company URL."""
+        return ((details or {}).get("job") or {}).get("responseManager") == "companyUrl"
+
     def is_external_apply(self, job_id: str, sid: str = "") -> bool:
         # Returns True if the job redirects to an external company URL for apply.
-        data = self.get_job_details(job_id, sid)
-        return data.get("job", {}).get("responseManager") == "companyUrl"
+        return self.is_external(self.get_job_details(job_id, sid))
 
     # ------------------------------------------------------------------
     # Apply job
@@ -396,6 +430,13 @@ class NaukriJobClient:
 
         if res.status_code == 406:
             logger.debug("406 Validation error: %s", res.text)
+            return []
+
+        if res.status_code == 400 and self._page_past_end(res):
+            logger.debug(
+                "Page %d doesn't exist for keyword=%r exp=%s — end of results",
+                page, keyword, experience,
+            )
             return []
 
         if not res.ok:

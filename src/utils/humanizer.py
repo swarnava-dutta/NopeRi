@@ -9,6 +9,7 @@ NOTE: run from a residential IP — no client-side randomization can
 protect a datacenter IP (see src/client/naukri_client.py).
 """
 
+import math
 import random
 import threading
 import time
@@ -16,16 +17,40 @@ from datetime import datetime, timezone
 
 from src.config import agent_config as config
 
+# Jobs processed this session — drives the fatigue slow-down.
+_JOBS_PROCESSED = 0
+
+
+def note_job() -> None:
+    """Record one processed job (applied, browsed, external — all count)."""
+    global _JOBS_PROCESSED
+    _JOBS_PROCESSED += 1
+
+
+def _fatigue_multiplier() -> float:
+    """Humans slow down over a session; delays stretch as jobs accumulate."""
+    ramp = getattr(config, "FATIGUE_RAMP_PER_JOB", 0.0)
+    if not config.HUMANIZE or ramp <= 0:
+        return 1.0
+    return min(1.0 + _JOBS_PROCESSED * ramp, config.FATIGUE_MAX_MULTIPLIER)
+
 
 def human_delay(min_s: float, max_s: float) -> None:
-    """Randomized sleep (triangular distribution + occasional hesitation)."""
+    """Randomized sleep with a human-shaped (log-normal) distribution.
+
+    Uniform/triangular sleeps produce a flat timing histogram over hundreds
+    of requests — real human action gaps are log-normal: most around the
+    median with a long right tail. Also applies session fatigue.
+    """
     if not config.HUMANIZE:
         time.sleep(min_s)
         return
-    duration = random.triangular(min_s, max_s)
+    mid = max((min_s + max_s) / 2.0, 0.05)
+    duration = random.lognormvariate(math.log(mid), 0.35)
+    duration = min(max(duration, min_s), max_s * 1.5)  # long tail up to 1.5x max
     if random.random() < 0.10:  # humans aren't metronomes
         duration += random.uniform(0.5, 2.5)
-    time.sleep(duration)
+    time.sleep(duration * _fatigue_multiplier())
 
 
 def maybe_long_break() -> None:
@@ -36,10 +61,27 @@ def maybe_long_break() -> None:
         time.sleep(duration)
 
 
-def reading_pause() -> None:
-    """Simulates reading a job description before applying."""
-    if config.HUMANIZE:
-        human_delay(config.READING_PAUSE_MIN_SECONDS, config.READING_PAUSE_MAX_SECONDS)
+def reading_pause(jd_chars: int = 0) -> None:
+    """Simulates reading a job description — longer JDs take longer.
+
+    Extra time scales with description length (capped), then randomized so
+    the same JD length never produces the same pause twice. Some humans
+    skim, some read fully — the 0.4–1.0 factor models that spread.
+    """
+    if not config.HUMANIZE:
+        return
+    extra = 0.0
+    if jd_chars > 0:
+        extra = min(
+            (jd_chars / 1000.0) * config.READING_SECONDS_PER_1000_CHARS,
+            config.READING_PAUSE_EXTRA_MAX_SECONDS,
+        ) * random.uniform(0.4, 1.0)
+    human_delay(config.READING_PAUSE_MIN_SECONDS, config.READING_PAUSE_MAX_SECONDS + extra)
+
+
+def window_shopping() -> bool:
+    """True when the 'human' opens a job, reads it, and moves on without applying."""
+    return config.HUMANIZE and random.random() < config.WINDOW_SHOPPING_PROBABILITY
 
 
 def session_warmup() -> None:
@@ -66,6 +108,19 @@ def shuffled(items: list) -> list:
     out = list(items)
     random.shuffle(out)
     return out
+
+
+def light_shuffle(items: list, drift: int = 3) -> list:
+    """Slightly perturbed copy: each item drifts up to ``drift`` positions.
+
+    Humans mostly work top-to-bottom through search results but skip around
+    a little — a full shuffle would look wrong, a strict order looks robotic.
+    """
+    if not config.HUMANIZE or drift <= 0 or len(items) < 3:
+        return list(items)
+    keyed = [(index + random.uniform(0.0, float(drift)), item) for index, item in enumerate(items)]
+    keyed.sort(key=lambda pair: pair[0])
+    return [item for _, item in keyed]
 
 
 class RequestPacer:
