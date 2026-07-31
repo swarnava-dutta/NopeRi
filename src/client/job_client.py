@@ -151,6 +151,31 @@ class NaukriJobClient:
                 time.sleep(wait)
         return res
 
+    @staticmethod
+    def _external_hint(raw: dict) -> bool | None:
+        """Best-effort 'is this an external apply?' read of a listing payload.
+
+        Search/recommended listings sometimes already say the apply happens
+        on the company's own site. When they do we can drop the job into
+        external_jobs.csv without ever spending a job-details request on it.
+        Returns None when the listing gives us nothing to go on — only the
+        details endpoint can decide in that case.
+        """
+        if raw.get("responseManager") == "companyUrl":
+            return True
+
+        for key in ("applyRedirectUrl", "externalApplyUrl", "companyUrl"):
+            value = raw.get(key)
+            if isinstance(value, str) and value.strip():
+                return True
+
+        for key in ("isExternalJob", "externalApply", "isExternal"):
+            value = raw.get(key)
+            if isinstance(value, bool):
+                return value
+
+        return None
+
     def _parse_job(self, raw: dict) -> Job:
         # Extract location from the placeholders list if present.
         location = next(
@@ -172,6 +197,7 @@ class NaukriJobClient:
                 if raw.get("tagsAndSkills")
                 else []
             ),
+            external=self._external_hint(raw),
         )
 
     def _build_seo_key(self, keyword: str, location: str, page: int) -> str:

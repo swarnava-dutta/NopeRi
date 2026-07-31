@@ -46,6 +46,63 @@ DAILY_APPLY_LIMIT = 50
 
 
 # ---------------------------------------------------------------------------
+# Collect → rank → apply pipeline
+# ---------------------------------------------------------------------------
+# Every search term is collected into ONE pool before a single apply happens,
+# then the pool is ranked so the daily budget goes to the best-matching jobs
+# instead of whichever keyword happened to be shuffled first.
+
+RANK_JOB_POOL = True          # False = keep raw collection order
+
+# FRESHNESS IS THE TOP-PRIORITY SIGNAL.
+# Jobs are bucketed into freshness tiers (≤3h, ≤12h, today, 1-2d, ...) and
+# each tier is worth more than every other signal combined. A fresher job
+# therefore ALWAYS outranks a staler one; relevance only decides the order
+# *within* a tier. Being an early applicant beats being a slightly better
+# keyword match.
+RANK_FRESHNESS_WEIGHT = 30.0     # points per freshness tier (not a flat bonus)
+RANK_FRESHNESS_DOMINANT = True   # floor the tier step above every other signal,
+                                 # so retuning the weights below can't silently
+                                 # break the "freshest first" guarantee
+RANK_UNKNOWN_FRESHNESS_HOURS = 24.0  # assumed age when the posted date is
+                                     # unparseable (don't bury odd formats)
+
+# Relevance weights — these break ties *inside* a freshness tier.
+RANK_SKILL_WEIGHT = 3.0       # per candidate skill found in the job's tags
+RANK_SKILL_MAX = 18.0         # cap so a tag-stuffed listing can't dominate
+RANK_TITLE_WEIGHT = 6.0       # job title contains a preferred title term
+RANK_LOCATION_WEIGHT = 2.5    # job location matches location_preference
+RANK_TIE_JITTER = 0.75        # random tie-break so equal scores don't
+                              # produce an identical order every run
+
+# Title terms that indicate a strongly relevant role.
+PREFERRED_TITLE_TERMS = [
+    "ai engineer",
+    "gen ai",
+    "genai",
+    "generative ai",
+    "llm",
+    "rag",
+    "machine learning",
+    "applied ai",
+    "forward deployed",
+    "agentic",
+]
+
+# Title terms that disqualify a job outright (never applied to).
+EXCLUDED_TITLE_TERMS = [
+    "intern",
+    "internship",
+    "fresher",
+    "trainee",
+    "sales",
+    "bpo",
+    "telecaller",
+]
+
+
+
+# ---------------------------------------------------------------------------
 # Anti-ban / humanization settings (see src/utils/humanizer.py)
 # ---------------------------------------------------------------------------
 # Randomizes timing/behaviour so requests look human. NOTE: no client-side

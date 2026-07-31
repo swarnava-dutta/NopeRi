@@ -2,7 +2,8 @@ import sys
 
 from src.agents.easy_apply_agent import EasyApplyAgent
 from src.agents.external_link_agent import ExternalLinkAgent
-from src.agents.job_sources import run_recommended, run_search_term
+from src.agents.job_ranker import freshness_tier, rank_leads
+from src.agents.job_sources import collect_all
 from src.agents.job_utils import add_stats, empty_stats
 from src.client.job_client import NaukriJobClient
 from src.client.naukri_client import NaukriLoginClient
@@ -11,7 +12,13 @@ from src.utils import humanizer
 
 
 class NaukriApplyOrchestrator:
-    """Coordinates the apply phases in a fixed order: recommended → search."""
+    """Runs the apply pipeline: collect → rank → apply.
+
+    Every source is collected into ONE deduped pool before a single apply
+    happens. That way the daily budget is spent on the best-matching jobs
+    across all search terms, instead of being burnt by whichever keyword
+    happened to be shuffled first.
+    """
 
     def __init__(self) -> None:
         self.seen_job_ids = set()
@@ -38,49 +45,73 @@ class NaukriApplyOrchestrator:
         job_client = NaukriJobClient(login_client)
         easy_apply_agent = EasyApplyAgent(job_client, ExternalLinkAgent())
 
-        self._run_recommended(job_client, easy_apply_agent)
-        self._run_search_terms(job_client, easy_apply_agent)
+        leads = self._collect(job_client)
+        leads = self._rank(leads)
+        self._apply(easy_apply_agent, leads)
+
         self._print_summary()
 
-    def _run_recommended(self, job_client, easy_apply_agent) -> None:
-        if not config.RUN_RECOMMENDED_PHASE:
-            print("\n⏭️ Recommended phase skipped by config.")
+    # ------------------------------------------------------------------
+    # Phase 1 — collect
+    # ------------------------------------------------------------------
+
+    def _collect(self, job_client) -> list:
+        print("\n" + "=" * 52)
+        print("📥 PHASE 1 — Collecting jobs")
+        print("=" * 52)
+
+        leads = collect_all(job_client, self.seen_job_ids)
+        print(f"\n📦 Pool: {len(leads)} unique jobs")
+        return leads
+
+    # ------------------------------------------------------------------
+    # Phase 2 — rank
+    # ------------------------------------------------------------------
+
+    def _rank(self, leads: list) -> list:
+        if not leads:
+            return leads
+
+        print("\n" + "=" * 52)
+        print("🧮 PHASE 2 — Ranking pool")
+        print("=" * 52)
+
+        ranked = rank_leads(leads)
+
+        if not config.RANK_JOB_POOL:
+            return ranked
+
+        # How the pool breaks down by posting age — the signal that now
+        # decides apply order before anything else.
+        buckets: dict[str, int] = {}
+        for lead in ranked:
+            label, _ = freshness_tier(lead.job)
+            buckets[label] = buckets.get(label, 0) + 1
+        print("🕐 Freshness: " + "  ".join(f"{k}={v}" for k, v in buckets.items()))
+
+        print("\nTop picks (freshest first, then best match):")
+        for lead in ranked[:8]:
+            label, _ = freshness_tier(lead.job)
+            print(f"  [{label:>5}] {lead.score:6.1f}  {lead.job.title} @ {lead.job.company}")
+        if len(ranked) > 8:
+            print(f"  ... and {len(ranked) - 8} more")
+
+        return ranked
+
+    # ------------------------------------------------------------------
+    # Phase 3 — apply
+    # ------------------------------------------------------------------
+
+    def _apply(self, easy_apply_agent, leads: list) -> None:
+        print("\n" + "=" * 52)
+        print("🚀 PHASE 3 — Applying")
+        print("=" * 52)
+
+        if not leads:
+            print("ℹ️ Nothing collected — nothing to apply to.")
             return
 
-        add_stats(self.totals, run_recommended(
-            job_client, easy_apply_agent, self.seen_job_ids, self._daily_remaining(),
-        ))
-
-    def _run_search_terms(self, job_client, easy_apply_agent) -> None:
-        if not config.RUN_SEARCH_PHASE:
-            print("\n⏭️ Search phase skipped by config.")
-            return
-
-        # Shuffle query order each run so the request sequence is never
-        # identical between runs.
-        queries = config.SEARCH_QUERIES
-        if config.SHUFFLE_SEARCH_QUERIES:
-            queries = humanizer.shuffled(queries)
-
-        for index, query in enumerate(queries):
-            if self._daily_remaining() <= 0:
-                print("🛑 Daily apply limit reached. Stopping search.")
-                break
-
-            if humanizer.too_many_blocks():
-                print("🛑 Too many server blocks this run — aborting to protect the account.")
-                break
-
-            # Randomized pause between search terms (skip before first one).
-            if index > 0:
-                humanizer.human_delay(config.QUERY_DELAY_MIN_SECONDS, config.QUERY_DELAY_MAX_SECONDS)
-
-            add_stats(self.totals, run_search_term(
-                job_client, easy_apply_agent, query, self.seen_job_ids, self._daily_remaining(),
-            ))
-
-    def _daily_remaining(self) -> int:
-        return self.daily_limit - self.totals["applied"]
+        add_stats(self.totals, easy_apply_agent.run(leads, self.daily_limit))
 
     def _print_summary(self) -> None:
         print("\n📊 Run summary")
@@ -89,8 +120,9 @@ class NaukriApplyOrchestrator:
         print(f"✅ Applied: {self.totals['applied']}")
         print(f"⏭️ Already applied: {self.totals['skipped_applied']}")
         print(f"🚫 Blocked companies: {self.totals['skipped_blocked']}")
+        print(f"🙅 Excluded roles: {self.totals['skipped_excluded']}")
         print(f"👀 Browsed only: {self.totals['skipped_browse']}")
-        print(f"❌ External links: {self.totals['skipped_ext']}")
+        print(f"📄 External (logged to CSV): {self.totals['skipped_ext']}")
         print(f"⚠️ Failed: {self.totals['failed']}")
 
     def _configure_output(self) -> None:

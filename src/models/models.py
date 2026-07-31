@@ -22,6 +22,27 @@ class Job:
     apply_link: str
     description: str = ""
     tags: list = field(default_factory=list)
+    # Tri-state external-apply hint taken from the listing payload:
+    #   True  -> listing explicitly says apply happens on a company URL
+    #   False -> listing explicitly says it's an on-site (easy) apply
+    #   None  -> listing didn't say; only the job-details call can tell
+    external: bool = None
+
+
+@dataclass
+class JobLead:
+    """One candidate job plus the context needed to apply to it.
+
+    Search and recommended feeds are collected into a single pool, so each
+    job has to carry its own apply source (which drives the applySrc /
+    logstr fields) and a human-readable label for logging.
+    """
+
+    job: Job
+    source: str           # "recommended" | "search"
+    label: str            # search keyword, or "recommended"
+    score: float = 0.0
+
 
 
 @dataclass

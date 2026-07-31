@@ -5,9 +5,11 @@ STATS_KEYS = (
     "skipped_ext",
     "skipped_applied",
     "skipped_blocked",
+    "skipped_excluded",
     "skipped_browse",
     "failed",
 )
+
 
 
 def empty_stats(found: int = 0) -> dict:

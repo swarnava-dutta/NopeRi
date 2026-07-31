@@ -1,3 +1,4 @@
+from src.agents.job_ranker import is_excluded_title
 from src.agents.job_store import load_job_ids, save_applied_job
 from src.agents.job_utils import empty_stats, job_label
 from src.config import agent_config as config
@@ -5,7 +6,12 @@ from src.utils import humanizer
 
 
 class EasyApplyAgent:
-    """Applies Naukri easy-apply jobs and skips external company links."""
+    """Applies Naukri easy-apply jobs.
+
+    External (company-site) jobs are never part of the apply list — they are
+    written to external_jobs.csv and dropped. They cost no daily budget, no
+    apply attempt, and no fatigue.
+    """
 
     def __init__(self, job_client, external_link_agent) -> None:
         self.job_client = job_client
@@ -17,35 +23,66 @@ class EasyApplyAgent:
         company = (job.company or "").lower()
         return any(blocked in company for blocked in config.BLOCKED_COMPANIES)
 
-    def run(self, jobs: list, source: str, label: str, daily_remaining: int) -> dict:
-        stats = empty_stats(found=len(jobs))
+    # ------------------------------------------------------------------
+    # Filtering
+    # ------------------------------------------------------------------
 
-        if daily_remaining <= 0:
-            print("🛑 Daily apply limit reached.")
-            return stats
+    def filter_applicable(self, leads: list, stats: dict) -> list:
+        """Drop everything we must not apply to, before any apply happens.
 
-        pending_jobs = []
-        for job in jobs:
+        External jobs found here are documented straight to the CSV — they
+        never enter the apply list, so they can't eat the daily budget.
+        """
+        pending = []
+
+        for lead in leads:
+            job = lead.job
+
             if job.job_id in self.applied_job_ids:
                 stats["skipped_applied"] += 1
                 print(f"⏭️ Already applied: {job_label(job)}")
             elif self._is_blocked_company(job):
                 stats["skipped_blocked"] += 1
                 print(f"🚫 Blocked company: {job_label(job)}")
+            elif is_excluded_title(job):
+                stats["skipped_excluded"] += 1
+                print(f"🙅 Excluded role: {job_label(job)}")
+            elif job.external is True:
+                # The listing itself told us it's a company-site apply, so we
+                # can file it without spending a job-details request on it.
+                stats["skipped_ext"] += 1
+                self.external_link_agent.document(job, lead.source)
+                print(f"📄 External (listing) → CSV: {job_label(job)}")
             else:
-                pending_jobs.append(job)
+                pending.append(lead)
 
-        if not pending_jobs:
-            print(f"ℹ️ No new {label} jobs to apply.")
+        return pending
+
+    # ------------------------------------------------------------------
+    # Apply
+    # ------------------------------------------------------------------
+
+    def run(self, leads: list, daily_remaining: int) -> dict:
+        """Apply to a ranked pool of leads until the budget runs out."""
+        stats = empty_stats(found=len(leads))
+
+        pending = self.filter_applicable(leads, stats)
+
+        if not pending:
+            print("\nℹ️ No new jobs to apply.")
             return stats
 
-        # Humans don't work strictly top-to-bottom through search results —
-        # let each job drift a few positions in the apply order.
-        pending_jobs = humanizer.light_shuffle(pending_jobs, config.JOB_ORDER_DRIFT)
+        if daily_remaining <= 0:
+            print("🛑 Daily apply limit reached.")
+            return stats
 
-        print(f"🚀 Applying {label}: {len(pending_jobs)} jobs")
+        # Humans don't work strictly top-to-bottom through a result list —
+        # let each job drift a few positions without losing the ranking.
+        pending = humanizer.light_shuffle(pending, config.JOB_ORDER_DRIFT)
 
-        for job in pending_jobs:
+        print(f"\n🚀 Applying to {len(pending)} jobs (budget: {daily_remaining})")
+
+        for lead in pending:
             if stats["applied"] >= daily_remaining:
                 print("🛑 Daily apply limit reached.")
                 break
@@ -56,7 +93,13 @@ class EasyApplyAgent:
                 print("🛑 Too many server blocks this run — stopping to protect the account.")
                 break
 
-            self._apply_one(job, source, stats)
+            applied_or_browsed = self._apply_one(lead, stats)
+
+            # External jobs are pure bookkeeping — no reading, no pause, no
+            # fatigue. Only real interactions look like human activity.
+            if not applied_or_browsed:
+                continue
+
             humanizer.note_job()  # feeds the session-fatigue slow-down
 
             # Randomized human-like pause between applies, plus occasional
@@ -66,11 +109,13 @@ class EasyApplyAgent:
 
         return stats
 
-    def _apply_one(self, job, source: str, stats: dict) -> None:
+    def _apply_one(self, lead, stats: dict) -> bool:
+        """Returns True when the job was genuinely interacted with."""
+        job = lead.job
         label_text = job_label(job)
 
         try:
-            self._apply_core(job, source, stats, label_text)
+            return self._apply_core(lead, stats, label_text)
         except Exception as exc:
             # A rotated/expired nauk_at mid-run surfaces as 403 "Invalid
             # User". Refresh the session token and retry this job once —
@@ -78,20 +123,26 @@ class EasyApplyAgent:
             if "invalid user" in str(exc).lower() and self.job_client.refresh_auth():
                 print(f"🔄 Session token refreshed — retrying: {label_text}")
                 try:
-                    self._apply_core(job, source, stats, label_text)
-                    return
+                    return self._apply_core(lead, stats, label_text)
                 except Exception as retry_exc:
                     exc = retry_exc
             stats["failed"] += 1
             print(f"⚠️ Failed: {label_text} | {exc}")
+            return True
 
-    def _apply_core(self, job, source: str, stats: dict, label_text: str) -> None:
+    def _apply_core(self, lead, stats: dict, label_text: str) -> bool:
+        job = lead.job
+        source = lead.source
+
         details = self.job_client.get_job_details(job.job_id)
+
+        # Only the details call can catch externals the listing didn't flag.
+        # Document and move on — never an apply attempt, never any budget.
         if self.job_client.is_external(details):
             stats["skipped_ext"] += 1
             self.external_link_agent.document(job, source)
-            print(f"❌ External link: {label_text}")
-            return
+            print(f"📄 External → CSV: {label_text}")
+            return False
 
         # Human "reads" the job description before hitting apply —
         # longer JDs take proportionally longer.
@@ -103,7 +154,7 @@ class EasyApplyAgent:
         if humanizer.window_shopping():
             stats["skipped_browse"] += 1
             print(f"👀 Browsed only: {label_text}")
-            return
+            return True
 
         mandatory = job.tags[:config.MANDATORY_SKILL_COUNT] if job.tags else []
         optional = (
@@ -142,4 +193,7 @@ class EasyApplyAgent:
         save_applied_job(job, questionnaire_answers=questionnaire_answers)
         self.applied_job_ids.add(job.job_id)
         stats["applied"] += 1
-        print(f"✅ Applied: {label_text}")
+
+        score_note = f" (score {lead.score:.1f})" if lead.score else ""
+        print(f"✅ Applied: {label_text}{score_note}")
+        return True
