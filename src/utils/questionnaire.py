@@ -130,6 +130,40 @@ def _is_ai_related(qtext: str) -> bool:
     return any(_word_match(qtext, term) for term in config.AI_EXPERIENCE_TERMS)
 
 
+def _is_lwd_question(qtext: str) -> bool:
+    """Questions asking for the candidate's exact last working day."""
+    return "last working day" in qtext or _word_match(qtext, "lwd")
+
+
+def _is_joining_date_question(qtext: str) -> bool:
+    """Questions asking when the candidate can actually start a new role."""
+    date_phrases = (
+        "available to join", "availability to join", "when can you join",
+        "when would you join", "how soon can you join", "joining date",
+        "date of joining", "earliest joining",
+        "available to start", "when can you start", "start date",
+    )
+    return any(phrase in qtext for phrase in date_phrases)
+
+
+def _is_date_of_birth_question(qtext: str) -> bool:
+    return (
+        "date of birth" in qtext
+        or "birth date" in qtext
+        or _word_match(qtext, "dob")
+    )
+
+
+def _is_pan_question(qtext: str) -> bool:
+    return (
+        "pan card" in qtext
+        or "pan number" in qtext
+        or "pan no" in qtext
+        or "permanent account number" in qtext
+        or _word_match(qtext, "pan")
+    )
+
+
 def _is_joining_question(qtext: str) -> bool:
     """'notice period' is always a joining-time question. For join/onboard
     wording, also require a time-ish word so 'Why do you want to join us?'
@@ -214,6 +248,10 @@ def _answer_one(q: dict, profile: dict, profile_skills: list[str]):
             return profile.get("github_url", "")
         if "phone" in qtext or "mobile" in qtext or "contact number" in qtext:
             return profile.get("phone", "")
+        if _is_date_of_birth_question(qtext):
+            return profile.get("date_of_birth", "")
+        if _is_pan_question(qtext):
+            return profile.get("pan_number", "")
         if ("current company" in qtext or "current employer" in qtext
                 or "present company" in qtext or "present employer" in qtext):
             return profile.get("current_company", "")
@@ -229,6 +267,10 @@ def _answer_one(q: dict, profile: dict, profile_skills: list[str]):
         if "experience" in qtext:
             # AI-related experience → exp_ai; everything else → exp_total.
             return profile["exp_ai"] if _is_ai_related(qtext) else profile["exp_total"]
+        if _is_lwd_question(qtext):
+            return profile.get("last_working_day", "")
+        if _is_joining_date_question(qtext):
+            return profile.get("available_to_join_from", "")
         if _is_joining_question(qtext):
             # Notice period / joining time, in the unit asked.
             return _notice_text_answer(qtext, profile["notice_days"])

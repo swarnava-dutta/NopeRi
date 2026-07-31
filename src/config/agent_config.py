@@ -123,9 +123,7 @@ MANDATORY_SKILL_COUNT = 2
 # Never apply to companies whose name contains any of these strings
 # (case-insensitive substring match against the job's company name).
 BLOCKED_COMPANIES = [
-    "teksystems",
-    "tek systems",
-    "allegis",
+    "accion labs",
 ]
 
 APPLY_PAYLOAD_DEFAULTS = {
@@ -149,8 +147,13 @@ _PROFILE_FALLBACK = {
     "exp_total": "0",
     "exp_ai": "0",
     "notice_days": 30,
+    "notice_status": "",
+    "last_working_day": "",
+    "available_to_join_from": "",
     "current_company": "",
     "current_location": "",
+    "date_of_birth": "",
+    "pan_number": "",
     "phone": "",
     "email": "",
     "linkedin_url": "",

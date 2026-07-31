@@ -58,8 +58,14 @@ def _profile_context() -> str:
         f"- AI/ML/GenAI/LLM/RAG-related experience (years): "
         f"{profile.get('exp_ai', 'N/A')}",
         f"- Notice period (days): {profile.get('notice_days', 'N/A')}",
+        f"- Notice status: {profile.get('notice_status', 'N/A')}",
+        f"- Last working day (LWD): {profile.get('last_working_day', 'N/A')}",
+        f"- Available to join/start a new job from: "
+        f"{profile.get('available_to_join_from', 'N/A')}",
         f"- Current company / employer: {profile.get('current_company', 'N/A')}",
         f"- Current location / city: {profile.get('current_location', 'N/A')}",
+        f"- Date of birth: {profile.get('date_of_birth', 'N/A')}",
+        f"- PAN number: {profile.get('pan_number', 'N/A')}",
         f"- Phone number: {profile.get('phone', 'N/A')}",
         f"- Email (default, for everything except TCS): "
         f"{profile.get('email', 'N/A')}",
@@ -96,6 +102,10 @@ def _system_prompt() -> str:
         "- Keep answers short. For factual questions: a number or a few "
         "words. For descriptive 'how/why/describe' questions: 1-2 complete "
         "sentences maximum, never cut off mid-sentence.\n"
+        "- Never refer to the profile, provided information, missing data, "
+        "or unavailable information in an answer. Never say 'I don't have "
+        "this in the provided profile' or any variation of it. Give only a "
+        "direct, recruiter-ready answer.\n"
         "- NEVER answer with a range (e.g. '4-6 years'). Always give one "
         "exact number.\n"
         "- For gender questions, answer with the exact gender from the "
@@ -112,8 +122,10 @@ def _system_prompt() -> str:
         "question does not mention F2F, face-to-face, in-person, or walk-in.\n"
         "- Always answer 'Yes' to relocation or willingness-to-move "
         "questions (any city, any location).\n"
-        "- Always answer 'Yes' to availability, immediate joining, work "
-        "from office/hybrid, shift, and travel willingness questions.\n"
+        "- For joining availability, use the exact available-to-join date "
+        "from the profile. Do not claim immediate availability before that "
+        "date. Continue answering 'Yes' to work from office/hybrid, shift, "
+        "and travel willingness questions.\n"
         "- Always answer 'Yes' to domain, industry, sector, or vertical "
         "experience questions, including banking, medtech, healthcare, "
         "finance, fintech, insurance, retail, telecom, manufacturing, or "
@@ -123,6 +135,8 @@ def _system_prompt() -> str:
         "qualification is a Bachelor's degree.\n"
         "- For LinkedIn/GitHub/portfolio URL, phone number, or current "
         "location questions, reply with the exact value from the profile.\n"
+        "- For date of birth/DOB or PAN questions, reply with the exact "
+        "value from the profile.\n"
         "- For email / email address / email ID questions, reply with the "
         "default email from the profile — UNLESS the question mentions TCS "
         "or TCS registration, in which case reply with the TCS registration "
@@ -157,8 +171,11 @@ def _system_prompt() -> str:
         "number only, converted to the unit the question asks for. The "
         "candidate's notice period is given in DAYS: if asked in months, "
         "convert (30 days = 1 month); if asked in weeks, convert (30 days = "
-        "4 weeks); if asked 'how soon can you join' reply with the notice "
-        "period in the unit asked (default days).\n"
+        "4 weeks). For last working day/LWD questions, reply with the exact "
+        "last working day from the profile. For when-can-you-join, joining "
+        "date, availability, or start-date questions, reply with the exact "
+        "available-to-join date from the profile. Keep those two dates "
+        "distinct.\n"
         "- Never explain your answer. Never add extra sentences."
     )
 
@@ -217,6 +234,23 @@ def _clean_text_answer(text: str) -> str:
     return answer[:500]
 
 
+def _mentions_missing_profile_data(answer: str) -> bool:
+    """Block AI answers that expose internal profile/data limitations."""
+    value = answer.lower()
+    unavailable_phrases = (
+        "don't have", "do not have", "not provided", "not available",
+        "unavailable", "missing", "not included", "no information",
+        "cannot find", "can't find",
+    )
+    internal_sources = (
+        "profile", "provided information", "available information",
+        "provided data", "candidate data",
+    )
+    return any(p in value for p in unavailable_phrases) and any(
+        source in value for source in internal_sources
+    )
+
+
 def ai_text_answer(question_text: str) -> str | None:
     """Answer a free-text question. Returns None if AI is off or fails."""
     if not ai_enabled() or not question_text.strip():
@@ -236,6 +270,12 @@ def ai_text_answer(question_text: str) -> str | None:
 
     answer = _clean_text_answer(raw)
     if not answer:
+        return None
+    if _mentions_missing_profile_data(answer):
+        logger.warning(
+            "Discarded AI answer that referred to missing profile data for %r",
+            question_text,
+        )
         return None
 
     _answer_cache[cache_key] = answer

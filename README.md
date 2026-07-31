@@ -71,7 +71,8 @@ Edit agent settings in `src/config/agent_config.py`:
 - `BLOCKED_COMPANIES` to never apply to specific companies
 - anti-ban / humanization knobs (`HUMANIZE`, delays, cooldowns, abort thresholds)
 
-Candidate profile (CTC, experience, notice period, links, skills) lives in
+Candidate profile (CTC, experience, notice period, LWD, joining availability,
+links, skills) lives in
 `candidate_profile.json` at the repo root — edit that file to change
 questionnaire answers; no code change needed.
 

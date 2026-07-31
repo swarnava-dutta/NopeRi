@@ -1,4 +1,4 @@
-status=RUNNING
-message=Noperi is running
-updated_at=24-07-2026 11:39:53.11
+status=FAILED
+message=Noperi failed with exit code 1
+updated_at=31-07-2026  9:52:45.26
 log_file=H:\NAUKRI\NopeRi (Fork - Job Apply)(API)\logs\noperi_hidden.log
