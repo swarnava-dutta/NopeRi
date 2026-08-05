@@ -42,7 +42,7 @@ SEARCH_QUERIES = [
 EXPERIENCE_LEVELS = [5]
 SEARCH_PAGES = 3
 JOB_AGE_DAYS = 1
-DAILY_APPLY_LIMIT = 50
+DAILY_APPLY_LIMIT = 100
 
 
 # ---------------------------------------------------------------------------
