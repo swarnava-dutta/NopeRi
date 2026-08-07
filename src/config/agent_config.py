@@ -44,52 +44,33 @@ SEARCH_PAGES = 3
 JOB_AGE_DAYS = 1
 DAILY_APPLY_LIMIT = 100
 
+# Server-side result ordering for the search API. "" sends no sort param at
+# all, so Naukri returns its default RELEVANCE order — the same thing a
+# browser gets on a plain SRP load, and one less non-default parameter for
+# the bot heuristics to notice. "f" would ask for Date (freshest first).
+SEARCH_SORT_BY = ""
+
 
 # ---------------------------------------------------------------------------
-# Collect → rank → apply pipeline
+# Collect → sort → apply pipeline
 # ---------------------------------------------------------------------------
-# Every search term is collected into ONE pool before a single apply happens,
-# then the pool is ranked so the daily budget goes to the best-matching jobs
-# instead of whichever keyword happened to be shuffled first.
+# Every search term is collected into ONE pool before a single apply happens.
+# The pool is then sorted NEWEST FIRST and applied to top-down until the daily
+# limit runs out. Pooling is what stops the budget being burnt by whichever
+# keyword happened to be shuffled first.
+#
+# There is deliberately no relevance scoring: relevance is already decided by
+# the keywords in SEARCH_QUERIES, so every result is a role we want. The only
+# thing that changes outcomes is being an early applicant.
 
 RANK_JOB_POOL = True          # False = keep raw collection order
 
-# FRESHNESS IS THE TOP-PRIORITY SIGNAL.
-# Jobs are bucketed into freshness tiers (≤3h, ≤12h, today, 1-2d, ...) and
-# each tier is worth more than every other signal combined. A fresher job
-# therefore ALWAYS outranks a staler one; relevance only decides the order
-# *within* a tier. Being an early applicant beats being a slightly better
-# keyword match.
-RANK_FRESHNESS_WEIGHT = 30.0     # points per freshness tier (not a flat bonus)
-RANK_FRESHNESS_DOMINANT = True   # floor the tier step above every other signal,
-                                 # so retuning the weights below can't silently
-                                 # break the "freshest first" guarantee
-RANK_UNKNOWN_FRESHNESS_HOURS = 24.0  # assumed age when the posted date is
-                                     # unparseable (don't bury odd formats)
-
-# Relevance weights — these break ties *inside* a freshness tier.
-RANK_SKILL_WEIGHT = 3.0       # per candidate skill found in the job's tags
-RANK_SKILL_MAX = 18.0         # cap so a tag-stuffed listing can't dominate
-RANK_TITLE_WEIGHT = 6.0       # job title contains a preferred title term
-RANK_LOCATION_WEIGHT = 2.5    # job location matches location_preference
-RANK_TIE_JITTER = 0.75        # random tie-break so equal scores don't
-                              # produce an identical order every run
-
-# Title terms that indicate a strongly relevant role.
-PREFERRED_TITLE_TERMS = [
-    "ai engineer",
-    "gen ai",
-    "genai",
-    "generative ai",
-    "llm",
-    "rag",
-    "machine learning",
-    "applied ai",
-    "forward deployed",
-    "agentic",
-]
+# Assumed age when a posting has no usable timestamp and its text label can't
+# be parsed. Kept mid-range so odd formats are neither promoted nor buried.
+RANK_UNKNOWN_FRESHNESS_HOURS = 24.0
 
 # Title terms that disqualify a job outright (never applied to).
+
 EXCLUDED_TITLE_TERMS = [
     "intern",
     "internship",
@@ -140,8 +121,13 @@ FATIGUE_RAMP_PER_JOB = 0.02            # +2% delay per processed job
 FATIGUE_MAX_MULTIPLIER = 1.6           # never slower than 1.6x base delays
 
 # Window shopping: occasionally open a job, read it, and just move on
-# without applying (a strong human signal — bots apply to 100% of views).
+# without applying (a strong human signal - bots apply to 100% of views).
 # Skipped jobs stay eligible for future runs and never consume the limit.
+#
+# Only applies when AI_ROLE_FILTER has NO opinion on the job. A role the
+# filter confirmed as AI/ML is always applied to, never browsed away — the
+# roles it rejects are already opened-and-abandoned, which is the same signal
+# for free. See EasyApplyAgent._apply_core.
 WINDOW_SHOPPING_PROBABILITY = 0.04
 
 # Reading pause scales with JD length — longer descriptions take longer.
@@ -177,10 +163,12 @@ TRANSIENT_RETRY_MAX_SECONDS = 20.0     # cap on any single retry wait
 APPLY_TYPE_ID = "107"
 MANDATORY_SKILL_COUNT = 2
 
-# Never apply to companies whose name contains any of these strings
-# (case-insensitive substring match against the job's company name).
+# Never apply to companies whose name contains any of these strings.
+# Matched as a substring against the LOWERCASED company name, so every
+# entry here must be lowercase (see EasyApplyAgent._is_blocked_company).
 BLOCKED_COMPANIES = [
     "accion labs",
+    "biz tech consultants",
 ]
 
 APPLY_PAYLOAD_DEFAULTS = {
@@ -217,8 +205,6 @@ _PROFILE_FALLBACK = {
     "github_url": "",
     "highest_qualification": "Bachelor's degree",
     "graduation_year": "",
-    "has_masters": False,
-    "has_postgraduation": False,
     "tcs_registration_email": "",
     "tcs_ep_number": "",
     "location_preference": [],
@@ -268,15 +254,23 @@ NO_QUESTION_HINTS = [
     "interviewed here",
     "relatives",
     "criminal",
-    # Face-to-face / in-person interview questions → always No
+]
+
+# Face-to-face / in-person interview questions → always No. Also appended to
+# NO_QUESTION_HINTS below, since matching either list forces the same "No" —
+# two hand-synced copies of these terms drifted apart once already.
+F2F_INTERVIEW_HINTS = [
     "f2f",
     "face to face",
     "face-to-face",
-    "in person interview",
-    "in-person interview",
+    "in person",
+    "in-person",
+    "inperson",
     "walk-in",
     "walkin",
 ]
+
+NO_QUESTION_HINTS += F2F_INTERVIEW_HINTS
 
 # Questions matching these hints are ALWAYS answered "Yes".
 RELOCATION_HINTS = [
@@ -361,17 +355,6 @@ AI_EXPERIENCE_TERMS = [
     "openai",
 ]
 
-F2F_INTERVIEW_HINTS = [
-    "f2f",
-    "face to face",
-    "face-to-face",
-    "in person",
-    "in-person",
-    "inperson",
-    "walk-in",
-    "walkin",
-]
-
 
 # ---------------------------------------------------------------------------
 # AI answer fallback (Claude)
@@ -388,5 +371,64 @@ AI_MAX_TOKENS = 300
 AI_TIMEOUT_SECONDS = 20
 # Disable AI for the rest of the run after this many consecutive API failures.
 AI_MAX_FAILURES = 3
+
+
+# ---------------------------------------------------------------------------
+# AI role filter (OpenAI) — see src/utils/ai_role_filter.py
+# ---------------------------------------------------------------------------
+# Decides whether each job is genuinely an AI/ML engineering role before
+# applying. Naukri's keyword search matches the whole listing, so "Applied AI
+# Engineer" also returns QA testers and C# developers — a keyword blocklist
+# can't keep up with that variety.
+# Requires OPENAI_API_KEY. Runs once per job that reaches the apply step
+# (cached per identical prompt), so cost is bounded by the daily limit.
+# Fails open: if the API is down or unkeyed, nothing gets filtered out.
+AI_ROLE_FILTER = True
+
+# Synchronous chat-completions model. NOT the Batch API — that's async with a
+# 24h window (measured: still "validating" after 30s vs ~1.6s sync), and this
+# verdict is needed inline while deciding whether to apply right now.
+ROLE_FILTER_MODEL = "gpt-5.6-luna"
+
+# How hard the model thinks before answering. Accepted values for this model
+# family: "none", "low", "medium", "high", "xhigh" — "minimal" is REJECTED
+# with HTTP 400 ("does not support 'minimal' with this model"), so do not use
+# it here even though older gpt-5 snapshots took it.
+# "medium" is the deliberate choice: the verdict rests on a whole job
+# description where the title often contradicts the actual work, and that
+# judgement is exactly what reasoning tokens buy. A wrong NO silently drops a
+# real AI job for the whole run, which costs far more than a few tokens.
+ROLE_FILTER_REASONING_EFFORT = "medium"
+
+# Only one word ("YES"/"NO") is needed, but this cap covers internal reasoning
+# tokens too, and those are spent BEFORE anything visible is written. A cap
+# sized for the answer alone (16) was being eaten whole by reasoning on long or
+# ambiguous JDs, returning empty content with finish_reason="length" — which
+# looked random because it depends on how much the model deliberates.
+# Sized for ROLE_FILTER_REASONING_EFFORT above: at "medium" the model thinks
+# considerably longer than at the old "minimal", so 512 would now be swallowed
+# by reasoning on long JDs and come back empty. Raise this if you raise the
+# effort to "high"/"xhigh".
+# Billing is on tokens actually generated, so an obvious listing still costs
+# ~1 output token; only the genuinely hard ones spend more headroom.
+ROLE_FILTER_MAX_TOKENS = 4096
+
+# Separate from AI_TIMEOUT_SECONDS: reasoning time scales with the effort
+# above, so a "medium" verdict on a long JD takes far longer than a quick
+# questionnaire answer. A timeout counts toward AI_MAX_FAILURES, so a value
+# sized for the fast path would trip the breaker and silently switch the
+# filter off mid-run.
+ROLE_FILTER_TIMEOUT_SECONDS = 90
+
+
+
+# How much of the job description to send. 0 = the WHOLE description, which
+# is the point: a title is written to attract applicants, the description is
+# what the job actually is, and truncating it hands the decision back to the
+# title. The text is HTML-stripped first (job_utils.plain_text), so this is
+# real words, not markup. Set a positive number only to cap token cost.
+AI_ROLE_FILTER_JD_CHARS = 0
+
+
 # Optional extra free-text context for the AI (education, city, work auth, etc.)
 AI_ANSWER_CONTEXT = ""

@@ -2,9 +2,9 @@ import sys
 
 from src.agents.easy_apply_agent import EasyApplyAgent
 from src.agents.external_link_agent import ExternalLinkAgent
-from src.agents.job_ranker import freshness_tier, rank_leads
+from src.agents.job_ranker import age_label, rank_leads
 from src.agents.job_sources import collect_all
-from src.agents.job_utils import add_stats, empty_stats
+from src.agents.job_utils import empty_stats
 from src.client.job_client import NaukriJobClient
 from src.client.naukri_client import NaukriLoginClient
 from src.config import agent_config as config
@@ -12,12 +12,13 @@ from src.utils import humanizer
 
 
 class NaukriApplyOrchestrator:
-    """Runs the apply pipeline: collect → rank → apply.
+    """Runs the apply pipeline: collect → sort newest-first → apply.
 
     Every source is collected into ONE deduped pool before a single apply
-    happens. That way the daily budget is spent on the best-matching jobs
-    across all search terms, instead of being burnt by whichever keyword
-    happened to be shuffled first.
+    happens. The pool is then ordered newest-first across ALL search terms
+    and applied to top-down until the daily limit is hit — so the budget
+    goes to the freshest postings rather than being burnt by whichever
+    keyword happened to be shuffled first.
     """
 
     def __init__(self) -> None:
@@ -28,7 +29,13 @@ class NaukriApplyOrchestrator:
         self.daily_limit = humanizer.jitter_int(config.DAILY_APPLY_LIMIT, config.DAILY_LIMIT_JITTER)
 
     def run(self) -> None:
-        self._configure_output()
+        # Not redundant with Run Noperi.bat's PYTHONIOENCODING: a bare
+        # `python main.py` on a cp1252 console dies on the emoji output.
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
         # Randomized warm-up so scheduled runs never hit Naukri at the
         # exact same second every day.
@@ -65,7 +72,7 @@ class NaukriApplyOrchestrator:
         return leads
 
     # ------------------------------------------------------------------
-    # Phase 2 — rank
+    # Phase 2 — order newest-first
     # ------------------------------------------------------------------
 
     def _rank(self, leads: list) -> list:
@@ -73,26 +80,25 @@ class NaukriApplyOrchestrator:
             return leads
 
         print("\n" + "=" * 52)
-        print("🧮 PHASE 2 — Ranking pool")
+        print("🕐 PHASE 2 — Sorting pool (newest first)")
         print("=" * 52)
 
         ranked = rank_leads(leads)
 
         if not config.RANK_JOB_POOL:
+            print("ℹ️ Sorting disabled by config — keeping collection order.")
             return ranked
 
-        # How the pool breaks down by posting age — the signal that now
-        # decides apply order before anything else.
+        # How the pool breaks down by posting age.
         buckets: dict[str, int] = {}
         for lead in ranked:
-            label, _ = freshness_tier(lead.job)
+            label = age_label(lead.job)
             buckets[label] = buckets.get(label, 0) + 1
-        print("🕐 Freshness: " + "  ".join(f"{k}={v}" for k, v in buckets.items()))
+        print("🕐 Age spread: " + "  ".join(f"{k}={v}" for k, v in buckets.items()))
 
-        print("\nTop picks (freshest first, then best match):")
+        print("\nNewest in the pool:")
         for lead in ranked[:8]:
-            label, _ = freshness_tier(lead.job)
-            print(f"  [{label:>5}] {lead.score:6.1f}  {lead.job.title} @ {lead.job.company}")
+            print(f"  [{age_label(lead.job):>5}] {lead.job.title} @ {lead.job.company}")
         if len(ranked) > 8:
             print(f"  ... and {len(ranked) - 8} more")
 
@@ -111,7 +117,13 @@ class NaukriApplyOrchestrator:
             print("ℹ️ Nothing collected — nothing to apply to.")
             return
 
-        add_stats(self.totals, easy_apply_agent.run(leads, self.daily_limit))
+        # Search pushback must not veto the apply phase: they are different
+        # endpoints. A 406 recaptcha on search page 3 was killing the whole
+        # apply loop on its first iteration (pool collected, 0 attempted).
+        # Apply-side 403/429s still count from zero and can still abort.
+        humanizer.reset_blocks()
+
+        self.totals = easy_apply_agent.run(leads, self.daily_limit)
 
     def _print_summary(self) -> None:
         print("\n📊 Run summary")
@@ -121,13 +133,8 @@ class NaukriApplyOrchestrator:
         print(f"⏭️ Already applied: {self.totals['skipped_applied']}")
         print(f"🚫 Blocked companies: {self.totals['skipped_blocked']}")
         print(f"🙅 Excluded roles: {self.totals['skipped_excluded']}")
+        print(f"🧠 Not AI roles (AI judged): {self.totals['skipped_irrelevant']}")
+
         print(f"👀 Browsed only: {self.totals['skipped_browse']}")
         print(f"📄 External (logged to CSV): {self.totals['skipped_ext']}")
         print(f"⚠️ Failed: {self.totals['failed']}")
-
-    def _configure_output(self) -> None:
-        for stream in (sys.stdout, sys.stderr):
-            try:
-                stream.reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass

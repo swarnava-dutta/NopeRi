@@ -1,8 +1,10 @@
-from src.agents.job_ranker import is_excluded_title
+from src.agents.job_ranker import age_label, is_excluded_title
 from src.agents.job_store import load_job_ids, save_applied_job
-from src.agents.job_utils import empty_stats, job_label
+from src.agents.job_utils import empty_stats, job_label, plain_text
 from src.config import agent_config as config
+from src.exceptions.exceptions import NaukriAuthError
 from src.utils import humanizer
+from src.utils.ai_role_filter import is_relevant_role
 
 
 class EasyApplyAgent:
@@ -58,12 +60,38 @@ class EasyApplyAgent:
 
         return pending
 
+    @staticmethod
+    def _role_verdict(job, description: str) -> bool | None:
+        """Is this an AI/ML role? True / False / None when there's no opinion.
+
+        Deliberately called from the apply loop rather than the bulk filter:
+
+        1. It runs only on jobs we are actually about to apply to, so the
+           number of paid calls is bounded by the daily budget instead of by
+           the (much larger) pool size.
+        2. By then the job-details response has given us the real job
+           description. Search listings carry almost no description, and a
+           title alone can't tell an AI-focused "Software Engineer" apart
+           from a generic one.
+
+        None (filter disabled, unkeyed, or tripped) is passed through rather
+        than collapsed into False: a missing opinion must never silently
+        shrink the apply pool, and callers need to tell "not AI" apart from
+        "don't know".
+        """
+        return is_relevant_role(
+            title=job.title,
+            company=job.company,
+            tags=job.tags,
+            description=description or job.description,
+        )
+
     # ------------------------------------------------------------------
     # Apply
     # ------------------------------------------------------------------
 
     def run(self, leads: list, daily_remaining: int) -> dict:
-        """Apply to a ranked pool of leads until the budget runs out."""
+        """Apply down the newest-first pool until the budget runs out."""
         stats = empty_stats(found=len(leads))
 
         pending = self.filter_applicable(leads, stats)
@@ -117,10 +145,17 @@ class EasyApplyAgent:
         try:
             return self._apply_core(lead, stats, label_text)
         except Exception as exc:
-            # A rotated/expired nauk_at mid-run surfaces as 403 "Invalid
-            # User". Refresh the session token and retry this job once —
-            # it's a stale credential, not a problem with the job.
-            if "invalid user" in str(exc).lower() and self.job_client.refresh_auth():
+            # A rotated/expired nauk_at mid-run is a stale credential, not a
+            # problem with the job — refresh the token and retry once.
+            #
+            # Trigger on the exception TYPE, not on message text. Matching the
+            # literal "invalid user" meant every 403 whose body said anything
+            # else ("Auth failed", an empty message, a WAF page) skipped the
+            # refresh and burnt the job outright — 8 such lines in
+            # logs/noperi_hidden.log. refresh_auth() self-limits: it returns
+            # False unless it actually got a DIFFERENT token, so a 429 or a
+            # genuine permission error still can't cause a pointless retry.
+            if isinstance(exc, NaukriAuthError) and self.job_client.refresh_auth():
                 print(f"🔄 Session token refreshed — retrying: {label_text}")
                 try:
                     return self._apply_core(lead, stats, label_text)
@@ -145,13 +180,33 @@ class EasyApplyAgent:
             return False
 
         # Human "reads" the job description before hitting apply —
-        # longer JDs take proportionally longer.
-        jd_text = (details.get("job") or {}).get("description") or job.description or ""
+        # longer JDs take proportionally longer. Stripped of HTML first, so
+        # the pause tracks the words and the role filter judges the words.
+        jd_text = plain_text(
+            (details.get("job") or {}).get("description") or job.description or ""
+        )
         humanizer.reading_pause(len(jd_text))
 
-        # Sometimes a human opens a job, reads it, and just moves on.
-        # The job stays eligible for a future run and costs no budget.
-        if humanizer.window_shopping():
+        # Now that the real JD is in hand, let the model confirm this is
+        # actually an AI/ML role. Keyword search returns plenty of QA,
+        # C#, and non-engineering listings that no blocklist would catch.
+        # Costs no apply budget — it's the same as reading and walking away.
+        verdict = self._role_verdict(job, jd_text)
+        if verdict is False:
+            stats["skipped_irrelevant"] += 1
+            print(f"🧠 Not an AI role: {label_text}")
+            return True
+
+        # Browse-only exists purely as an anti-ban signal (humans open some
+        # jobs and walk away; bots apply to 100% of what they view). A
+        # CONFIRMED AI role must never be spent on it — the listings the
+        # filter just rejected above are already exactly that signal, opened
+        # and abandoned, so the pattern is covered for free.
+        #
+        # It still fires when the filter has no opinion (verdict None:
+        # disabled, unkeyed, or tripped). Otherwise turning the filter off
+        # would apply to 100% of everything we open.
+        if verdict is None and humanizer.window_shopping():
             stats["skipped_browse"] += 1
             print(f"👀 Browsed only: {label_text}")
             return True
@@ -194,6 +249,5 @@ class EasyApplyAgent:
         self.applied_job_ids.add(job.job_id)
         stats["applied"] += 1
 
-        score_note = f" (score {lead.score:.1f})" if lead.score else ""
-        print(f"✅ Applied: {label_text}{score_note}")
+        print(f"✅ Applied: {label_text} ({age_label(job)})")
         return True

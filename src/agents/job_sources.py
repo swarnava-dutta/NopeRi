@@ -1,10 +1,17 @@
 """Job sources: collect jobs from every source into one deduped pool.
 
 These functions only FETCH. Nothing here applies to a job — the whole pool
-is gathered first, then ranked, then applied to by EasyApplyAgent. That
-split is what lets the daily budget go to the best jobs overall instead of
-being burnt by whichever search term happened to run first.
+is gathered first, then sorted newest-first, then applied to by
+EasyApplyAgent. That split is what lets the daily budget go to the freshest
+jobs across ALL search terms, instead of being burnt by whichever search
+term happened to run first.
+
+Server-side ordering is ``SEARCH_SORT_BY`` (default "" = Naukri's own
+relevance order), so the pages we fetch are the ones Naukri considers the
+best matches for the keyword. Freshness is applied afterwards, locally, when
+the pool is sorted — it decides apply ORDER, not pool membership.
 """
+
 
 from src.agents.job_utils import dedup_new_jobs
 from src.config import agent_config as config
@@ -26,10 +33,7 @@ def collect_recommended(job_client, seen_job_ids: set) -> list[JobLead]:
     new_jobs = dedup_new_jobs(jobs, seen_job_ids)
     print(f"📦 Found: {len(new_jobs)}")
 
-    return [
-        JobLead(job=job, source="recommended", label="recommended")
-        for job in new_jobs
-    ]
+    return [JobLead(job=job, source="recommended") for job in new_jobs]
 
 
 def collect_search_term(job_client, query: dict, seen_job_ids: set) -> list[JobLead]:
@@ -39,10 +43,21 @@ def collect_search_term(job_client, query: dict, seen_job_ids: set) -> list[JobL
 
     print(f"\n🔎 Search: {keyword} | {location}")
 
-    jobs = _fetch_search_jobs(job_client, query, seen_job_ids)
-    print(f"📦 Found: {len(jobs)}")
+    jobs, raw_count = _fetch_search_jobs(job_client, query, seen_job_ids)
 
-    return [JobLead(job=job, source="search", label=keyword) for job in jobs]
+    # Report raw vs new separately. "Found: 0" used to be ambiguous — it
+    # could mean the term genuinely had no jobs, or that every result was
+    # already collected by an earlier (overlapping) keyword. Those need very
+    # different reactions, so never collapse them into one number again.
+    duplicates = raw_count - len(jobs)
+    if raw_count and not jobs:
+        print(f"📦 Found: 0 new ({raw_count} returned, all already seen via earlier terms)")
+    elif duplicates:
+        print(f"📦 Found: {len(jobs)} new ({raw_count} returned, {duplicates} duplicates)")
+    else:
+        print(f"📦 Found: {len(jobs)}")
+
+    return [JobLead(job=job, source="search") for job in jobs]
 
 
 def collect_all(job_client, seen_job_ids: set) -> list[JobLead]:
@@ -88,8 +103,10 @@ def collect_all(job_client, seen_job_ids: set) -> list[JobLead]:
     return leads
 
 
-def _fetch_search_jobs(job_client, query: dict, seen_job_ids: set) -> list:
+def _fetch_search_jobs(job_client, query: dict, seen_job_ids: set) -> tuple[list, int]:
+    """Returns (new deduped jobs, total raw jobs the server returned)."""
     all_jobs = []
+    raw_count = 0
     keyword = query["keyword"]
 
     for exp in config.EXPERIENCE_LEVELS:
@@ -101,15 +118,23 @@ def _fetch_search_jobs(job_client, query: dict, seen_job_ids: set) -> list:
                     experience=exp,
                     job_age=config.JOB_AGE_DAYS,
                     page=page,
+                    sort_by=config.SEARCH_SORT_BY,
                 )
+
             except Exception as exc:
                 print(f"⚠️ Search failed: {keyword} | exp={exp} | page={page} | {exc}")
+                # Bot pushback (406 recaptcha / 403 / 429) won't clear up by
+                # hammering the remaining pages of the same term.
+                if humanizer.too_many_blocks():
+                    print("🛑 Server is challenging requests — abandoning this term.")
+                    return all_jobs, raw_count
                 humanizer.human_delay(
                     config.SEARCH_ERROR_DELAY_MIN_SECONDS,
                     config.SEARCH_ERROR_DELAY_MAX_SECONDS,
                 )
                 continue
 
+            raw_count += len(jobs)
             all_jobs.extend(dedup_new_jobs(jobs, seen_job_ids))
 
             if not jobs:
@@ -121,4 +146,4 @@ def _fetch_search_jobs(job_client, query: dict, seen_job_ids: set) -> list:
                 config.SEARCH_DELAY_MAX_SECONDS,
             )
 
-    return all_jobs
+    return all_jobs, raw_count

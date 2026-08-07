@@ -21,35 +21,15 @@ def load_job_ids(csv_file: str) -> set:
         return {row["job_id"] for row in csv.DictReader(f) if row.get("job_id")}
 
 
-def ensure_csv_fieldnames(csv_file: str, required_fieldnames: list[str]) -> list[str]:
-    """Make sure the CSV header contains every required column, migrating
-    existing rows when new columns are introduced."""
-    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
-        return required_fieldnames
-
-    with open(csv_file, "r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        existing_fieldnames = reader.fieldnames or []
-        rows = list(reader)
-
-    missing_fieldnames = [
-        fieldname for fieldname in required_fieldnames if fieldname not in existing_fieldnames
-    ]
-    if not missing_fieldnames:
-        return existing_fieldnames
-
-    fieldnames = existing_fieldnames + missing_fieldnames
-    with open(csv_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    return fieldnames
-
-
 def write_csv_row(csv_file: str, fieldnames: list[str], row: dict) -> None:
+    """Append one row, writing the header first if the file is new/empty.
+
+    ponytail: no column migration. If you add a field to one of the row
+    schemas below, add the column to the existing CSV by hand (or delete the
+    file) — a rewrite-every-row migration on every single apply is not worth
+    carrying for a change that happens once a year.
+    """
     needs_header = not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0
-    fieldnames = ensure_csv_fieldnames(csv_file, fieldnames)
 
     with open(csv_file, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")

@@ -58,7 +58,7 @@ for job in jobs:
 ## Agent
 
 ```bash
-python apply_agent.py
+python main.py
 ```
 
 Edit agent settings in `src/config/agent_config.py`:

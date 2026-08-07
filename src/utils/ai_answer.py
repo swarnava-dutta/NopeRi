@@ -12,40 +12,27 @@ module disables itself for the rest of the run to avoid slowing applies.
 """
 
 import logging
-import os
-
-import requests
-
-try:
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:  # pragma: no cover - dotenv is in requirements.txt
-    pass
 
 from src.config import agent_config as config
+from src.utils import llm
 
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
+CALLER = "Claude questionnaire answer"
 
 # Answers are cached per run: the same question often repeats across jobs.
 _answer_cache: dict[str, str] = {}
-_consecutive_failures = 0
-
-
-def _api_key() -> str:
-    return os.getenv("ANTHROPIC_API_KEY", "").strip()
 
 
 def ai_enabled() -> bool:
     """True when the AI fallback is configured, keyed, and still healthy."""
-    if not getattr(config, "USE_AI_ANSWERS", False):
+    if not config.USE_AI_ANSWERS:
         return False
-    if _consecutive_failures >= getattr(config, "AI_MAX_FAILURES", 3):
+    if llm.tripped(CALLER):
         return False
-    return bool(_api_key())
+    return bool(llm.api_key("ANTHROPIC_API_KEY"))
 
 
 def _profile_context() -> str:
@@ -85,7 +72,7 @@ def _profile_context() -> str:
         "> any other",
         f"- Skills: {', '.join(profile.get('skills', []))}",
     ]
-    extra = (getattr(config, "AI_ANSWER_CONTEXT", "") or "").strip()
+    extra = (config.AI_ANSWER_CONTEXT or "").strip()
     if extra:
         lines.append(extra)
     return "\n".join(lines)
@@ -180,52 +167,33 @@ def _system_prompt() -> str:
     )
 
 
+def _text_blocks(data: dict) -> str:
+    """Join the text blocks of an Anthropic messages response."""
+    return "".join(
+        block.get("text", "")
+        for block in data.get("content", [])
+        if block.get("type") == "text"
+    ).strip()
+
+
 def _call_claude(user_prompt: str) -> str | None:
     """Single message call to the Anthropic API. Returns text or None."""
-    global _consecutive_failures
-
-    payload = {
-        "model": getattr(config, "AI_MODEL", "claude-haiku-4-5"),
-        "max_tokens": getattr(config, "AI_MAX_TOKENS", 100),
-        "system": _system_prompt(),
-        "messages": [{"role": "user", "content": user_prompt}],
-    }
-    headers = {
-        "x-api-key": _api_key(),
-        "anthropic-version": ANTHROPIC_VERSION,
-        "content-type": "application/json",
-    }
-
-    try:
-        res = requests.post(
-            ANTHROPIC_API_URL,
-            headers=headers,
-            json=payload,
-            timeout=getattr(config, "AI_TIMEOUT_SECONDS", 20),
-        )
-        if not res.ok:
-            _consecutive_failures += 1
-            logger.warning("Claude API error %s: %s", res.status_code, res.text[:200])
-            return None
-
-        data = res.json()
-        text = "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if block.get("type") == "text"
-        ).strip()
-
-        if not text:
-            _consecutive_failures += 1
-            return None
-
-        _consecutive_failures = 0
-        return text
-
-    except Exception as exc:  # network errors, timeouts, bad JSON
-        _consecutive_failures += 1
-        logger.warning("Claude API call failed: %s", exc)
-        return None
+    return llm.call(
+        CALLER,
+        ANTHROPIC_API_URL,
+        {
+            "x-api-key": llm.api_key("ANTHROPIC_API_KEY"),
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        },
+        {
+            "model": config.AI_MODEL,
+            "max_tokens": config.AI_MAX_TOKENS,
+            "system": _system_prompt(),
+            "messages": [{"role": "user", "content": user_prompt}],
+        },
+        _text_blocks,
+    )
 
 
 def _clean_text_answer(text: str) -> str:
@@ -343,3 +311,7 @@ def ai_option_answer(question_text: str, options: dict) -> str | None:
         f"   A: {normalized.get(key, key)}"
     )
     return key
+
+
+
+

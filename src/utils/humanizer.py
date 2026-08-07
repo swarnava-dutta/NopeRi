@@ -29,7 +29,7 @@ def note_job() -> None:
 
 def _fatigue_multiplier() -> float:
     """Humans slow down over a session; delays stretch as jobs accumulate."""
-    ramp = getattr(config, "FATIGUE_RAMP_PER_JOB", 0.0)
+    ramp = config.FATIGUE_RAMP_PER_JOB
     if not config.HUMANIZE or ramp <= 0:
         return 1.0
     return min(1.0 + _JOBS_PROCESSED * ramp, config.FATIGUE_MAX_MULTIPLIER)
@@ -105,9 +105,7 @@ def jitter_int(value: int, spread: int) -> int:
 
 def shuffled(items: list) -> list:
     """Shuffled copy (original untouched)."""
-    out = list(items)
-    random.shuffle(out)
-    return out
+    return random.sample(items, len(items))
 
 
 def light_shuffle(items: list, drift: int = 3) -> list:
@@ -131,6 +129,7 @@ class RequestPacer:
         self._last = 0.0
         self._penalty = 0.0
         self.blocks_seen = 0
+        self.challenged = False
 
     def pace(self, kind: str = "api") -> None:
         """Call right before every outgoing API request."""
@@ -145,6 +144,37 @@ class RequestPacer:
             if wait > 0:
                 time.sleep(wait)
             self._last = time.monotonic()
+
+    def register_challenge(self, status_code=None) -> None:
+        """Record a recaptcha challenge — an immediate, run-ending signal.
+
+        Unlike a 403/429 rate-limit, a recaptcha is aimed at the account/IP
+        and can only be cleared by solving it in a real browser. Waiting and
+        retrying just racks up more automated-looking requests against an
+        account already under suspicion, so this stops the run outright
+        instead of grinding through escalating cooldowns.
+        """
+        with self._lock:
+            self.challenged = True
+            self.blocks_seen += 1
+        print(f"🚨 Naukri is asking for a recaptcha (HTTP {status_code}).")
+        print("   The account/IP is flagged — stopping instead of retrying.")
+        print("   Log in through a browser, solve the check, then run again later.")
+
+    def reset_blocks(self) -> None:
+        """Clear the abort counters at a phase boundary (keeps the pacing penalty).
+
+        The search SRP (appid 109, nkparam) and the apply API (authenticated
+        jobapi) are separate surfaces. A recaptcha on search does NOT mean
+        apply is refusing — carrying the flag across phases threw away a
+        fully collected pool without attempting a single apply.
+
+        ``_penalty`` is deliberately left in place: the run stays slowed
+        down, it just stops refusing to work.
+        """
+        with self._lock:
+            self.blocks_seen = 0
+            self.challenged = False
 
     def register_block(self, status_code=None, cooldown: bool = True) -> None:
         """Record a 403/429: slow the whole run down and cool off (escalating)."""
@@ -162,8 +192,14 @@ class RequestPacer:
 PACER = RequestPacer()
 pace = PACER.pace
 register_block = PACER.register_block
+register_challenge = PACER.register_challenge
+reset_blocks = PACER.reset_blocks
 
 
 def too_many_blocks() -> bool:
-    """True once the run has hit the configured server-block abort threshold."""
-    return PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT
+    """True once the run should stop hitting the server.
+
+    A recaptcha challenge trips this on its very first occurrence — there is
+    no threshold to reach, because no number of retries will solve it.
+    """
+    return PACER.challenged or PACER.blocks_seen >= config.MAX_BLOCKS_BEFORE_ABORT

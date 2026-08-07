@@ -58,6 +58,20 @@ OTP_HEADERS = {
     "x-requested-with": "XMLHttpRequest",
 }
 
+# Browser-like headers for the cookie-refresh page visits (HTML, not API).
+WEB_HEADERS = {
+    "accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,image/apng,*/*;q=0.8"
+    ),
+    "referer": "https://www.naukri.com/",
+    "sec-ch-ua": OTP_HEADERS["sec-ch-ua"],
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": "\"Windows\"",
+    "upgrade-insecure-requests": "1",
+    "user-agent": OTP_HEADERS["user-agent"],
+}
+
 
 def _expiry_to_epoch(expires) -> float | None:
     """Accepts unix epoch (browser export) or RFC1123 string (httpcloak)."""
@@ -82,7 +96,6 @@ class NaukriLoginClient:
         self.naukri_session = None
         self.account_id = None
         self._cookie_payload = None
-        self._cookie_payload_shape = None
 
     def build_headers(self, auth=False, extra=None):
         headers = DEFAULT_HEADERS.copy()
@@ -105,20 +118,6 @@ class NaukriLoginClient:
 
     # Backwards-compatible alias (used by older integrations).
     _build_headers = build_headers
-
-    def _build_web_headers(self):
-        return {
-            "accept": (
-                "text/html,application/xhtml+xml,application/xml;q=0.9,"
-                "image/avif,image/webp,image/apng,*/*;q=0.8"
-            ),
-            "referer": "https://www.naukri.com/",
-            "sec-ch-ua": OTP_HEADERS["sec-ch-ua"],
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": "\"Windows\"",
-            "upgrade-insecure-requests": "1",
-            "user-agent": OTP_HEADERS["user-agent"],
-        }
 
     # ------------------------------------------------------------------
     # Cookie handling (httpcloak native cookie API)
@@ -145,15 +144,23 @@ class NaukriLoginClient:
         except json.JSONDecodeError as exc:
             raise NaukriAuthError(f"{self.cookie_file} is not valid JSON: {exc}") from exc
 
+        # Browser-export list (EditThisCookie / Cookie-Editor shape). The
+        # original records are kept so save_cookies() can write the extra
+        # export-only fields (hostOnly, session, storeId) straight back and
+        # the file stays re-importable into a browser.
+        if not isinstance(payload, list):
+            raise NaukriAuthError(
+                f"{self.cookie_file} must contain a browser-export cookie list"
+            )
+
         self._cookie_payload = payload
-        records = self._normalise_cookie_records(payload)
         loaded = 0
 
-        for record in records:
+        for record in payload:
             if not isinstance(record, dict):
                 continue
 
-            name = record.get("name") or record.get("key")
+            name = record.get("name")
             value = record.get("value")
             if not name or value is None:
                 continue
@@ -178,28 +185,6 @@ class NaukriLoginClient:
             raise NaukriAuthError(f"{self.cookie_file} does not contain any usable cookies")
 
         return loaded
-
-    def _normalise_cookie_records(self, payload):
-        """Accepts a browser-export list, {"cookies": [...]}, or a flat
-        name→value object. Remembers the shape so save_cookies() can write
-        the same format back."""
-        if isinstance(payload, list):
-            self._cookie_payload_shape = "list"
-            return payload
-
-        if isinstance(payload, dict) and isinstance(payload.get("cookies"), list):
-            self._cookie_payload_shape = "wrapped_list"
-            return payload["cookies"]
-
-        if isinstance(payload, dict):
-            self._cookie_payload_shape = "dict"
-            return [
-                {"name": name, "value": value}
-                for name, value in payload.items()
-                if not isinstance(value, (dict, list))
-            ]
-
-        raise NaukriAuthError(f"{self.cookie_file} must contain a cookie list or object")
 
     def _session_cookie_records(self):
         records = []
@@ -241,7 +226,7 @@ class NaukriLoginClient:
             if not isinstance(original, dict):
                 continue
 
-            name = original.get("name") or original.get("key")
+            name = original.get("name")
             if not name:
                 continue
 
@@ -264,24 +249,10 @@ class NaukriLoginClient:
         return merged
 
     def save_cookies(self):
-        current_records = self._session_cookie_records()
-
-        if self._cookie_payload_shape == "dict":
-            payload = {
-                record["name"]: record["value"]
-                for record in current_records
-            }
-        elif self._cookie_payload_shape == "wrapped_list":
-            payload = dict(self._cookie_payload or {})
-            payload["cookies"] = self._merge_cookie_records(
-                self._cookie_payload.get("cookies", []),
-                current_records,
-            )
-        else:
-            payload = self._merge_cookie_records(
-                self._cookie_payload if isinstance(self._cookie_payload, list) else [],
-                current_records,
-            )
+        payload = self._merge_cookie_records(
+            self._cookie_payload or [],
+            self._session_cookie_records(),
+        )
 
         temp_path = f"{self.cookie_file}.tmp"
         with open(temp_path, "w", encoding="utf-8") as f:
@@ -319,7 +290,7 @@ class NaukriLoginClient:
 
         for url in COOKIE_REFRESH_URLS:
             try:
-                res = self.session.get(url, headers=self._build_web_headers())
+                res = self.session.get(url, headers=WEB_HEADERS)
             except Exception:
                 continue
 

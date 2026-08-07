@@ -103,10 +103,14 @@ class NaukriJobClient:
             if res.status_code in (403, 429):
                 humanizer.register_block(res.status_code)
             try:
-                msg = res.json().get("message", "Auth failed")
+                detail = res.json().get("message") or ""
             except Exception:
-                msg = NaukriJobClient._snippet(res.text)
-            raise NaukriAuthError(msg)
+                detail = ""
+            # Always name the status code. A bare "Auth failed" (or worse, an
+            # empty string from a {"message": ""} body) filled the logs with
+            # "⚠️ Failed: <job> | [AUTH ERROR]" and nothing to diagnose from.
+            detail = detail or NaukriJobClient._snippet(res.text) or "empty body"
+            raise NaukriAuthError(f"HTTP {res.status_code} — {detail}")
 
         if not res.ok:
             raise NaukriParseError(
@@ -124,31 +128,46 @@ class NaukriJobClient:
 
     @staticmethod
     def _retry_transient(send, action: str):
-        """Run ``send()`` and retry on transient server errors (HTTP 5xx).
+        """Run ``send()`` and retry transient failures with backoff + jitter.
 
-        Naukri's job APIs randomly throw 500 "System Error" HTML pages even
-        for perfectly valid requests — a flaky backend, not a client bug.
-        Retries with exponential backoff + jitter; non-5xx responses are
-        returned immediately for normal handling.
+        Two kinds are transient and both get retried:
+
+        - HTTP 5xx — Naukri's job APIs randomly throw 500 "System Error"
+          HTML pages even for perfectly valid requests. Flaky backend, not
+          a client bug.
+        - A raised transport error — httpcloak raises
+          ``HTTPCloakError("Request failed")`` on a TLS reset or timeout.
+          Previously this escaped straight to the caller, so a single
+          network blip permanently burnt a job ("⚠️ Failed: … | Request
+          failed" appears 6 times in logs/noperi_hidden.log).
+
+        Non-5xx responses are returned immediately for normal handling.
         """
         attempts = max(1, config.TRANSIENT_RETRY_ATTEMPTS)
         res = None
         for attempt in range(1, attempts + 1):
-            res = send()
-            if res.status_code < 500:
-                return res
-            if attempt < attempts:
-                wait = min(
-                    config.TRANSIENT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
-                    config.TRANSIENT_RETRY_MAX_SECONDS,
-                ) + random.uniform(0.5, 2.0)
-                logger.debug(
-                    "%s got HTTP %s (attempt %d/%d) — retrying in %.1fs",
-                    action, res.status_code, attempt, attempts, wait,
-                )
-                print(f"🔁 {action}: server error {res.status_code}, retrying in {wait:.0f}s "
-                      f"({attempt}/{attempts - 1})...")
-                time.sleep(wait)
+            last = attempt == attempts
+            try:
+                res = send()
+                if res.status_code < 500 or last:
+                    return res
+                reason = f"server error {res.status_code}"
+            except Exception as exc:
+                if last:
+                    raise
+                reason = f"{type(exc).__name__}: {exc}"
+
+            wait = min(
+                config.TRANSIENT_RETRY_BASE_SECONDS * (2 ** (attempt - 1)),
+                config.TRANSIENT_RETRY_MAX_SECONDS,
+            ) + random.uniform(0.5, 2.0)
+            logger.debug(
+                "%s: %s (attempt %d/%d) — retrying in %.1fs",
+                action, reason, attempt, attempts, wait,
+            )
+            print(f"🔁 {action}: {reason}, retrying in {wait:.0f}s "
+                  f"({attempt}/{attempts - 1})...")
+            time.sleep(wait)
         return res
 
     @staticmethod
@@ -176,7 +195,34 @@ class NaukriJobClient:
 
         return None
 
+    @staticmethod
+    def _created_ms(raw: dict) -> int | None:
+        """Exact posting time in epoch ms, if the listing carries one.
+
+        Naukri sends ``createdDate`` (and sometimes ``footerPlaceholderLabel``'s
+        numeric twin) as epoch milliseconds. This is what the apply order
+        sorts on, so it's worth pulling out of every payload shape we've seen.
+        Values are sanity-checked: anything not plausibly a recent ms epoch is
+        discarded so a bad field can't jump the queue.
+        """
+        for key in ("createdDate", "createdOn", "postedDate", "jobPostedDate"):
+            value = raw.get(key)
+            if value is None:
+                continue
+            try:
+                number = int(float(value))
+            except (TypeError, ValueError):
+                continue
+            # Seconds-precision epochs (10 digits) show up occasionally.
+            if 1_000_000_000 <= number <= 9_999_999_999:
+                number *= 1000
+            # Roughly year 2001 -> year 2286 in ms; anything else isn't a date.
+            if 1_000_000_000_000 <= number <= 9_999_999_999_999:
+                return number
+        return None
+
     def _parse_job(self, raw: dict) -> Job:
+
         # Extract location from the placeholders list if present.
         location = next(
             (p["label"] for p in raw.get("placeholders", []) if p.get("type") == "location"),
@@ -197,6 +243,7 @@ class NaukriJobClient:
                 if raw.get("tagsAndSkills")
                 else []
             ),
+            created_ms=self._created_ms(raw),
             external=self._external_hint(raw),
         )
 
@@ -423,6 +470,7 @@ class NaukriJobClient:
         experience:       int = 2,
         results_per_page: int = 20,
         lat_long:         str = "",
+        sort_by:          str = "",
     ) -> list[Job]:
 
         params = {
@@ -440,6 +488,13 @@ class NaukriJobClient:
             "latLong":        lat_long,
         }
 
+        # Ask the server for date-sorted results ("f" = freshness on the SRP).
+        # Without this the API returns relevance order, so the newest postings
+        # can sit past SEARCH_PAGES and never be fetched at all — something no
+        # amount of local sorting can fix.
+        if sort_by:
+            params["sort"] = sort_by
+
         humanizer.pace("search")
         res = self._retry_transient(
             lambda: self._session.get(JOB_SEARCH_URL, headers=self._search_headers(), params=params),
@@ -455,8 +510,28 @@ class NaukriJobClient:
             raise NaukriParseError("429 Too Many Requests — rate limited by server")
 
         if res.status_code == 406:
-            logger.debug("406 Validation error: %s", res.text)
+            logger.debug("406 response: %s", res.text)
+            body = self._snippet(res.text, 200)
+
+            # Naukri returns 406 {"message":"recaptcha required"} when it
+            # decides the traffic looks automated. That is bot pushback, NOT
+            # "no results" — swallowing it silently made whole search terms
+            # look legitimately empty while the account was being throttled.
+            #
+            # Registered as a challenge, not a block: it ends the run at once
+            # rather than sleeping through escalating cooldowns (60s, 120s,
+            # 180s...) that cannot clear a recaptcha anyway.
+            if "recaptcha" in body.lower():
+                humanizer.register_challenge(res.status_code)
+                raise NaukriParseError(
+                    f"406 recaptcha required — server thinks traffic is automated ({keyword!r})"
+                )
+
+            print(f"⚠️ Search rejected (406) for {keyword!r}"
+                  f"{f' with sort={sort_by!r}' if sort_by else ''} — {body}")
             return []
+
+
 
         if res.status_code == 400 and self._page_past_end(res):
             logger.debug(
