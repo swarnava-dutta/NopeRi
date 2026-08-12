@@ -32,10 +32,12 @@ Put logged-in Naukri browser cookies in root `cookies.json`.
 The file can be a browser-export cookie list or simple name/value object.
 It must include `nauk_at`.
 
-Optional: add an Anthropic API key to `.env` for AI questionnaire answers:
+Optional: add API keys to `.env` for AI questionnaire answers and title-plus-JD
+AI/GenAI role filtering:
 
 ```env
 ANTHROPIC_API_KEY=your-anthropic-api-key
+OPENAI_API_KEY=your-openai-api-key
 ```
 
 ## Quick Start
@@ -67,7 +69,8 @@ Edit agent settings in `src/config/agent_config.py`:
 - daily apply limit (with jitter), mandatory skill split, delays, and payload defaults
 - `RUN_RECOMMENDED_PHASE=False` to skip recommended jobs and go straight to search agents
 - `RUN_SEARCH_PHASE=False` to run recommended jobs only
-- `DOCUMENT_EXTERNAL_LINKS=True` to save company-site apply links to `external_jobs.csv`
+- `DOCUMENT_EXTERNAL_LINKS=True` to save direct company-site links to `external_jobs.csv`
+- `APPLICATION_HISTORY_*` to merge recent Naukri application history before filtering
 - `BLOCKED_COMPANIES` to never apply to specific companies
 - anti-ban / humanization knobs (`HUMANIZE`, delays, cooldowns, abort thresholds)
 
@@ -79,12 +82,13 @@ questionnaire answers; no code change needed.
 Plain Python agent flow:
 
 1. Login using `cookies.json`
-2. `NaukriApplyOrchestrator` starts the phase order
-3. `job_sources.run_recommended` fetches recommended jobs, if enabled
-4. `job_sources.run_search_term` runs once per configured search term, if enabled
-5. `EasyApplyAgent` applies Naukri easy-apply jobs
-6. `ExternalLinkAgent` documents company-site apply links in `external_jobs.csv`
-7. Applied job IDs are saved to `applied_jobs.csv`
+2. Merge recent server-side application IDs with local `applied_jobs.csv` IDs
+3. `NaukriApplyOrchestrator` starts the phase order
+4. `job_sources.run_recommended` fetches recommended jobs, if enabled
+5. `job_sources.run_search_term` runs once per configured search term, if enabled
+6. `EasyApplyAgent` applies Naukri easy-apply jobs
+7. `ExternalLinkAgent` documents company-site apply links in `external_jobs.csv`
+8. Only server-confirmed new applications are saved to `applied_jobs.csv`
 
 Questionnaire answering (fixed rules + AI fallback) lives in
 `src/utils/questionnaire.py`.
@@ -94,10 +98,37 @@ When a job has questionnaire questions, fixed rules answer the common ones
 candidate profile. The applied row stores a `questionnaire_answers` JSON
 array with `question_id`, `question`, `answer`, and `raw_answer`.
 
+### Logging
+
+Two separate streams, deliberately:
+
+| Stream | File | Contents |
+|---|---|---|
+| Run report | console + `logs/noperi_hidden.log` | the emoji progress lines below |
+| Diagnostics | `logs/noperi_debug.log` | raw apply payloads, retries, auth recovery |
+
+The diagnostic log is configured in `src/config/agent_config.py` (`LOG_*` keys)
+and installed by `src/utils/run_logging.py`. It rotates at 2 MB, keeps 3
+backups, and records the raw apply-workflow response body
+(`LOG_RAW_APPLY_RESPONSE`) — the only reliable evidence of what the server
+actually returned, since that endpoint answers HTTP 200 for successes,
+questionnaires, and rejections alike. Only `ERROR` and above reach the console,
+so the run report stays readable.
+
+**Log encoding:** `Run Noperi.bat` delegates all log writing to
+`run_noperi.ps1`, so exactly one writer owns the file in UTF-8. Do not append to
+the log from cmd with `>> echo`: that writes ANSI while PowerShell 5.1's
+`Tee-Object` writes UTF-16LE, and mixing them produces a file that is roughly
+half NUL bytes and unreadable in any single encoding. To recover such a file:
+
+```bash
+python tools/repair_mixed_encoding_log.py logs/noperi_hidden.log
+```
+
 Runtime logs use readable status symbols:
 
 - `✅ Applied`
-- `❌ External link`
+- `📄 External detected`
 - `⏭️ Already applied`
 - `🚫 Blocked company`
 - `⚠️ Failed`
@@ -111,6 +142,7 @@ Runtime logs use readable status symbols:
 | `login()` | Loads `cookies.json`, verifies session, refreshes cookies back into same file |
 | `send_otp()` / `verify_otp()` | OTP/MFA login helpers |
 | `get_application_history()` | Fetches application history |
+| `get_recent_application_history()` | Returns deduplicated recent applied job IDs across bounded pages |
 
 ### `NaukriJobClient`
 

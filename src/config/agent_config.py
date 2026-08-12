@@ -23,6 +23,25 @@ _PROFILE_JSON = os.path.join(
 APPLIED_JOBS_CSV = "applied_jobs.csv"
 EXTERNAL_JOBS_CSV = "external_jobs.csv"
 
+# ---------------------------------------------------------------------------
+# Diagnostic logging (see src/utils/run_logging.py)
+# ---------------------------------------------------------------------------
+# Separate from the emoji run report printed to the console. This file is the
+# machine-readable trail (raw apply payloads, retries, auth recovery) used to
+# work out WHY a run behaved the way it did. It rotates, so it can never grow
+# without bound the way logs/noperi_hidden.log did.
+LOG_TO_FILE = True
+LOG_FILE = "logs/noperi_debug.log"
+LOG_FILE_LEVEL = "DEBUG"      # what lands in the file
+LOG_CONSOLE_LEVEL = "ERROR"   # keep stdout as the readable emoji report
+LOG_MAX_BYTES = 2_000_000     # rotate at ~2 MB
+LOG_BACKUP_COUNT = 3          # keep 3 rotations (~8 MB worst case)
+
+# Record the raw apply-workflow response body at DEBUG level. This is what
+# proves whether an apply actually landed when the parser disagrees; it costs
+# nothing on a healthy run and is the first thing to enable on a bad one.
+LOG_RAW_APPLY_RESPONSE = True
+
 # Set RUN_RECOMMENDED_PHASE=False to skip recommended jobs and go straight to
 # configured search terms.
 RUN_RECOMMENDED_PHASE = False
@@ -44,6 +63,14 @@ SEARCH_PAGES = 3
 JOB_AGE_DAYS = 1
 DAILY_APPLY_LIMIT = 100
 
+# Reconcile recently applied Naukri job IDs before a run so applications made
+# outside this checkout are not submitted again. The history endpoint is
+# paginated; keep the lookback and request ceiling deliberately small.
+APPLICATION_HISTORY_SYNC_ENABLED = True
+APPLICATION_HISTORY_DAYS = 3
+APPLICATION_HISTORY_PAGE_SIZE = 100
+APPLICATION_HISTORY_MAX_PAGES = 5
+
 # Server-side result ordering for the search API. "" sends no sort param at
 # all, so Naukri returns its default RELEVANCE order — the same thing a
 # browser gets on a plain SRP load, and one less non-default parameter for
@@ -59,9 +86,9 @@ SEARCH_SORT_BY = ""
 # limit runs out. Pooling is what stops the budget being burnt by whichever
 # keyword happened to be shuffled first.
 #
-# There is deliberately no relevance scoring: relevance is already decided by
-# the keywords in SEARCH_QUERIES, so every result is a role we want. The only
-# thing that changes outcomes is being an early applicant.
+# Search keywords create a candidate pool; the apply-time AI role filter reads
+# each full listing and decides target relevance. Local ranking only controls
+# which fresh candidates are considered first.
 
 RANK_JOB_POOL = True          # False = keep raw collection order
 
@@ -376,13 +403,13 @@ AI_MAX_FAILURES = 3
 # ---------------------------------------------------------------------------
 # AI role filter (OpenAI) — see src/utils/ai_role_filter.py
 # ---------------------------------------------------------------------------
-# Decides whether each job is genuinely an AI/ML engineering role before
-# applying. Naukri's keyword search matches the whole listing, so "Applied AI
-# Engineer" also returns QA testers and C# developers — a keyword blocklist
-# can't keep up with that variety.
-# Requires OPENAI_API_KEY. Runs once per job that reaches the apply step
-# (cached per identical prompt), so cost is bounded by the daily limit.
-# Fails open: if the API is down or unkeyed, nothing gets filtered out.
+# High-recall filter for hands-on AI/ML/GenAI engineering work. It includes
+# LLM/RAG/agents, classical ML, CV, model-building data science, MLOps, and AI
+# platform engineering; programming language is not an AI-role gate. Clear
+# GenAI builder titles pass locally. Ambiguous jobs require OPENAI_API_KEY and
+# whole-listing judgement (cached per identical prompt). Legacy OPEN_API_KEY
+# is also accepted for compatibility with older local .env files.
+# Fails open: if the API is down or unkeyed, ambiguous jobs are not rejected.
 AI_ROLE_FILTER = True
 
 # Synchronous chat-completions model. NOT the Batch API — that's async with a
@@ -422,11 +449,10 @@ ROLE_FILTER_TIMEOUT_SECONDS = 90
 
 
 
-# How much of the job description to send. 0 = the WHOLE description, which
-# is the point: a title is written to attract applicants, the description is
-# what the job actually is, and truncating it hands the decision back to the
-# title. The text is HTML-stripped first (job_utils.plain_text), so this is
-# real words, not markup. Set a positive number only to cap token cost.
+# How much of the job description to send. 0 = the WHOLE description. Title,
+# responsibilities, and required skills are judged together; the text is
+# HTML-stripped first (job_utils.plain_text). Set a positive number only to cap
+# token cost.
 AI_ROLE_FILTER_JD_CHARS = 0
 
 

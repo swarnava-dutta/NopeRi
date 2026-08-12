@@ -1,10 +1,12 @@
 from src.agents.job_ranker import age_label, is_excluded_title
 from src.agents.job_store import load_job_ids, save_applied_job
 from src.agents.job_utils import empty_stats, job_label, plain_text
+from src.client.naukri_client import SessionRecovery
 from src.config import agent_config as config
 from src.exceptions.exceptions import NaukriAuthError
 from src.utils import humanizer
 from src.utils.ai_role_filter import is_relevant_role
+from src.utils.apply_response import ApplyStatus, normalize_job_id, parse_apply_response
 
 
 class EasyApplyAgent:
@@ -15,15 +17,58 @@ class EasyApplyAgent:
     apply attempt, and no fatigue.
     """
 
-    def __init__(self, job_client, external_link_agent) -> None:
+    def __init__(
+        self,
+        job_client,
+        external_link_agent,
+        known_applied_job_ids: set[str] | None = None,
+    ) -> None:
         self.job_client = job_client
         self.external_link_agent = external_link_agent
         self.applied_job_ids = load_job_ids(config.APPLIED_JOBS_CSV)
+        self.applied_job_ids.update(
+            normalized
+            for job_id in (known_applied_job_ids or set())
+            if (normalized := normalize_job_id(job_id))
+        )
+        self._stop_run = False
+        self._consecutive_auth_failures = 0
 
     @staticmethod
     def _is_blocked_company(job) -> bool:
         company = (job.company or "").lower()
         return any(blocked in company for blocked in config.BLOCKED_COMPANIES)
+
+    def _document_external(
+        self,
+        job,
+        source: str,
+        stats: dict,
+        label_text: str,
+        origin: str = "",
+    ) -> None:
+        """Record one external encounter with truthful write/update counters."""
+        stats["skipped_ext"] += 1
+        try:
+            status = self.external_link_agent.document(job, source)
+        except Exception as exc:
+            stats["external_unsaved"] += 1
+            print(f"⚠️ External detected but CSV write failed: {label_text} | {exc}")
+            return
+
+        context = f" ({origin})" if origin else ""
+        if status == "written":
+            stats["external_written"] += 1
+            print(f"📄 External{context} → CSV: {label_text}")
+        elif status == "updated":
+            stats["external_updated"] += 1
+            print(f"🔗 External link updated{context} → CSV: {label_text}")
+        elif status == "duplicate":
+            stats["external_duplicate"] += 1
+            print(f"⏭️ External already documented{context}: {label_text}")
+        else:
+            stats["external_unsaved"] += 1
+            print(f"⚠️ External detected but not saved ({status or 'invalid'}): {label_text}")
 
     # ------------------------------------------------------------------
     # Filtering
@@ -52,9 +97,13 @@ class EasyApplyAgent:
             elif job.external is True:
                 # The listing itself told us it's a company-site apply, so we
                 # can file it without spending a job-details request on it.
-                stats["skipped_ext"] += 1
-                self.external_link_agent.document(job, lead.source)
-                print(f"📄 External (listing) → CSV: {job_label(job)}")
+                self._document_external(
+                    job,
+                    lead.source,
+                    stats,
+                    job_label(job),
+                    origin="listing",
+                )
             else:
                 pending.append(lead)
 
@@ -62,7 +111,7 @@ class EasyApplyAgent:
 
     @staticmethod
     def _role_verdict(job, description: str) -> bool | None:
-        """Is this an AI/ML role? True / False / None when there's no opinion.
+        """Is this a target AI/ML/GenAI role? True / False / None if unknown.
 
         Deliberately called from the apply loop rather than the bulk filter:
 
@@ -93,6 +142,8 @@ class EasyApplyAgent:
     def run(self, leads: list, daily_remaining: int) -> dict:
         """Apply down the newest-first pool until the budget runs out."""
         stats = empty_stats(found=len(leads))
+        self._stop_run = False
+        self._consecutive_auth_failures = 0
 
         pending = self.filter_applicable(leads, stats)
 
@@ -108,7 +159,10 @@ class EasyApplyAgent:
         # let each job drift a few positions without losing the ranking.
         pending = humanizer.light_shuffle(pending, config.JOB_ORDER_DRIFT)
 
-        print(f"\n🚀 Applying to {len(pending)} jobs (budget: {daily_remaining})")
+        print(
+            f"\n🔎 Reviewing {len(pending)} candidate jobs "
+            f"(apply budget: {daily_remaining})"
+        )
 
         for lead in pending:
             if stats["applied"] >= daily_remaining:
@@ -122,6 +176,9 @@ class EasyApplyAgent:
                 break
 
             applied_or_browsed = self._apply_one(lead, stats)
+
+            if self._stop_run:
+                break
 
             # External jobs are pure bookkeeping — no reading, no pause, no
             # fatigue. Only real interactions look like human activity.
@@ -145,24 +202,47 @@ class EasyApplyAgent:
         try:
             return self._apply_core(lead, stats, label_text)
         except Exception as exc:
-            # A rotated/expired nauk_at mid-run is a stale credential, not a
-            # problem with the job — refresh the token and retry once.
-            #
-            # Trigger on the exception TYPE, not on message text. Matching the
-            # literal "invalid user" meant every 403 whose body said anything
-            # else ("Auth failed", an empty message, a WAF page) skipped the
-            # refresh and burnt the job outright — 8 such lines in
-            # logs/noperi_hidden.log. refresh_auth() self-limits: it returns
-            # False unless it actually got a DIFFERENT token, so a 429 or a
-            # genuine permission error still can't cause a pointless retry.
-            if isinstance(exc, NaukriAuthError) and self.job_client.refresh_auth():
-                print(f"🔄 Session token refreshed — retrying: {label_text}")
-                try:
-                    return self._apply_core(lead, stats, label_text)
-                except Exception as retry_exc:
-                    exc = retry_exc
+            # An apply-auth rejection may mean a rotated token, a dead login,
+            # or Naukri rejecting only this job while the account stays valid.
+            # Trigger on exception type, then distinguish three outcomes:
+            # a rotated token gets one retry; an unchanged but dashboard-valid
+            # token means this job request alone was rejected; a dead session
+            # stops the run before dozens more apply requests fail.
+            if isinstance(exc, NaukriAuthError):
+                recovery = self.job_client.refresh_auth()
+                if recovery is True:  # compatibility with older clients
+                    recovery = SessionRecovery.REFRESHED
+                elif recovery is False:
+                    recovery = SessionRecovery.FAILED
+
+                if recovery is SessionRecovery.REFRESHED:
+                    print(f"🔄 Session token refreshed — retrying: {label_text}")
+                    try:
+                        result = self._apply_core(lead, stats, label_text)
+                        self._consecutive_auth_failures = 0
+                        return result
+                    except Exception as retry_exc:
+                        exc = retry_exc
+                        if isinstance(retry_exc, NaukriAuthError):
+                            self._consecutive_auth_failures += 1
+                            self._stop_run = True
+                        else:
+                            self._consecutive_auth_failures = 0
+                elif recovery is SessionRecovery.CURRENT_VALID:
+                    self._consecutive_auth_failures += 1
+                    print(f"ℹ️ Session still valid — job request rejected: {label_text}")
+                    if self._consecutive_auth_failures >= 2:
+                        self._stop_run = True
+                else:
+                    self._consecutive_auth_failures += 1
+                    self._stop_run = True
+            else:
+                self._consecutive_auth_failures = 0
+
             stats["failed"] += 1
             print(f"⚠️ Failed: {label_text} | {exc}")
+            if self._stop_run:
+                print("🛑 Repeated or unrecoverable authentication failure — stopping apply requests.")
             return True
 
     def _apply_core(self, lead, stats: dict, label_text: str) -> bool:
@@ -174,9 +254,7 @@ class EasyApplyAgent:
         # Only the details call can catch externals the listing didn't flag.
         # Document and move on — never an apply attempt, never any budget.
         if self.job_client.is_external(details):
-            stats["skipped_ext"] += 1
-            self.external_link_agent.document(job, source)
-            print(f"📄 External → CSV: {label_text}")
+            self._document_external(job, source, stats, label_text)
             return False
 
         # Human "reads" the job description before hitting apply —
@@ -187,14 +265,14 @@ class EasyApplyAgent:
         )
         humanizer.reading_pause(len(jd_text))
 
-        # Now that the real JD is in hand, let the model confirm this is
-        # actually an AI/ML role. Keyword search returns plenty of QA,
-        # C#, and non-engineering listings that no blocklist would catch.
+        # Now that the real JD is in hand, confirm this is target AI/ML work.
+        # Clear GenAI builder titles pass locally; ambiguous jobs use the model.
+        # Keyword search still returns QA and unrelated engineering listings.
         # Costs no apply budget — it's the same as reading and walking away.
         verdict = self._role_verdict(job, jd_text)
         if verdict is False:
             stats["skipped_irrelevant"] += 1
-            print(f"🧠 Not an AI role: {label_text}")
+            print(f"🧠 Outside hands-on AI/GenAI target: {label_text}")
             return True
 
         # Browse-only exists purely as an anti-ban signal (humans open some
@@ -226,27 +304,45 @@ class EasyApplyAgent:
             source=source,
         )
 
-        job_result = (result.get("jobs") or [{}])[0]
+        outcome = parse_apply_response(result, job.job_id)
         questionnaire_answers = []
-        if job_result.get("questionnaire"):
+        if outcome.status is ApplyStatus.QUESTIONNAIRE:
             # Humans take time to fill in a questionnaire.
             humanizer.human_delay(2.0, 8.0)
             sid = humanizer.generate_sid()
             questionnaire_result = self.job_client.handle_static_questionnaire_and_apply(
                 job,
-                questionnaire=job_result["questionnaire"],
+                questionnaire=outcome.questionnaire,
                 sid=sid,
                 mandatory_skills=mandatory,
                 optional_skills=optional,
                 source=source,
             )
-            questionnaire_answers = questionnaire_result.get("_questionnaire_answers") or []
-            if questionnaire_result.get("success") is False:
-                error = questionnaire_result.get("error") or "unknown questionnaire error"
-                raise RuntimeError(f"Questionnaire apply failed: {error}")
+            if isinstance(questionnaire_result, dict):
+                questionnaire_answers = (
+                    questionnaire_result.get("_questionnaire_answers") or []
+                )
+            outcome = parse_apply_response(
+                questionnaire_result,
+                job.job_id,
+                final_submission=True,
+            )
+
+        if outcome.status is ApplyStatus.ALREADY_APPLIED:
+            self._consecutive_auth_failures = 0
+            self.applied_job_ids.add(outcome.job_id)
+            stats["skipped_applied"] += 1
+            print(f"⏭️ Server says already applied: {label_text}")
+            return True
+
+        if outcome.status is not ApplyStatus.APPLIED:
+            raise RuntimeError(
+                f"Apply not confirmed ({outcome.status.value}): {outcome.reason}"
+            )
 
         save_applied_job(job, questionnaire_answers=questionnaire_answers)
-        self.applied_job_ids.add(job.job_id)
+        self._consecutive_auth_failures = 0
+        self.applied_job_ids.add(outcome.job_id)
         stats["applied"] += 1
 
         print(f"✅ Applied: {label_text} ({age_label(job)})")

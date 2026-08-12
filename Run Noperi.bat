@@ -65,22 +65,20 @@ if errorlevel 1 (
     goto :done
 )
 
-rem Run. Use PowerShell Tee-Object because cmd.exe has no built-in tee.
+rem Run. All log writing is delegated to run_noperi.ps1 so exactly ONE writer
+rem owns the file with one encoding (UTF-8, no BOM). Never append to !LOG_FILE!
+rem from cmd with ">> echo": that writes ANSI, PowerShell 5.1's Tee-Object
+rem writes UTF-16LE, and mixing the two left the old log ~48% NUL bytes and
+rem unreadable in any single encoding.
 call :write_status RUNNING "Noperi is running"
->> "!LOG_FILE!" echo.
->> "!LOG_FILE!" echo [%DATE% %TIME%] Starting Noperi with "!PYTHON_EXE!"
 
 echo Starting Noperi...
 echo ----------------------------------------
 
-set "NOPERI_PYTHON_EXE=!PYTHON_EXE!"
-set "NOPERI_MAIN_SCRIPT=!CD!\main.py"
-set "NOPERI_LOG_FILE=!LOG_FILE!"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& { $enc = New-Object System.Text.UTF8Encoding $false; [Console]::OutputEncoding = $enc; $OutputEncoding = $enc; & $env:NOPERI_PYTHON_EXE $env:NOPERI_MAIN_SCRIPT 2>&1 | Tee-Object -FilePath $env:NOPERI_LOG_FILE -Append; exit $LASTEXITCODE }"
+powershell -NoProfile -ExecutionPolicy Bypass -File "!ROOT!run_noperi.ps1" -PythonExe "!PYTHON_EXE!" -Script "!CD!\main.py" -LogFile "!LOG_FILE!"
 set "EXIT_CODE=!ERRORLEVEL!"
 
 echo ----------------------------------------
->> "!LOG_FILE!" echo [%DATE% %TIME%] Noperi exited with code !EXIT_CODE!
 popd
 
 rem Result.

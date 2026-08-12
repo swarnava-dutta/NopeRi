@@ -12,8 +12,10 @@ import logging
 import os
 import time
 from email.utils import formatdate, parsedate_to_datetime
+from enum import Enum
 
 from src.client.session import build_session
+from src.config import agent_config as config
 from src.config.constants import (
     DASHBOARD_URL,
     HISTORY_URL,
@@ -34,6 +36,19 @@ COOKIE_REFRESH_URLS = (
     "https://www.naukri.com/",
 )
 COOKIE_EXPIRY_SKEW_SECONDS = 300
+
+
+class SessionRecovery(str, Enum):
+    """Result of checking a session after an authenticated API rejection."""
+
+    REFRESHED = "refreshed"
+    CURRENT_VALID = "current_valid"
+    FAILED = "failed"
+
+    def __bool__(self) -> bool:
+        """Preserve the old boolean contract: only a new token is retryable."""
+        return self is SessionRecovery.REFRESHED
+
 
 DEFAULT_HEADERS = {
     "accept": "application/json",
@@ -263,29 +278,43 @@ class NaukriLoginClient:
     def _has_usable_access_cookie(self):
         return bool(self._get_cookie_value("nauk_at")) and not self._cookie_expires_soon("nauk_at")
 
-    def refresh_session_token(self) -> bool:
-        """Mid-run recovery for an expired/rotated nauk_at (403 "Invalid User").
+    def refresh_session_token(self) -> SessionRecovery:
+        """Recheck authentication after an API returns ``Invalid User``.
 
-        Re-visits the cookie-refresh URLs so the server issues a fresh
-        access token, updates the bearer, and persists the cookies for the
-        next run. Returns True only if a *different* usable token was
-        obtained (retrying with the same token would be pointless).
+        A new token permits one retry of the rejected request. An unchanged
+        token is force-validated against the dashboard so callers can tell a
+        job-specific rejection from a dead login. The forced check deliberately
+        bypasses the cached account ID.
         """
         if not self.naukri_session:
-            return False
+            return SessionRecovery.FAILED
+
         before = self.naukri_session.bearer_token
-        self._refresh_cookie_session()
+        self._refresh_cookie_session(require_new_token=True)
         token = self._get_cookie_value("nauk_at")
-        if not token or token == before:
-            return False
+
+        if token and token != before and not self._cookie_expires_soon("nauk_at"):
+            self.naukri_session.bearer_token = token
+            try:
+                self.save_cookies()
+            except Exception:
+                logger.debug("Could not persist refreshed cookies", exc_info=True)
+            return SessionRecovery.REFRESHED
+
+        if not token or self._cookie_expires_soon("nauk_at"):
+            return SessionRecovery.FAILED
+
+        # A fresh token can still receive an endpoint-local 403. Verify the
+        # unchanged credential against an authenticated account endpoint
+        # before deciding whether the whole run must stop.
         self.naukri_session.bearer_token = token
         try:
-            self.save_cookies()
+            self._verify_cookie_session(force=True)
         except Exception:
-            logger.debug("Could not persist refreshed cookies", exc_info=True)
-        return True
+            return SessionRecovery.FAILED
+        return SessionRecovery.CURRENT_VALID
 
-    def _refresh_cookie_session(self):
+    def _refresh_cookie_session(self, require_new_token=False):
         before = self._get_cookie_value("nauk_at")
 
         for url in COOKIE_REFRESH_URLS:
@@ -298,9 +327,18 @@ class NaukriLoginClient:
                 continue
 
             after = self._get_cookie_value("nauk_at")
-            if after and (after != before or self._has_usable_access_cookie()):
+            if after and after != before and self._has_usable_access_cookie():
                 return True
 
+            # Login-time refresh only needs a usable token. Mid-run recovery
+            # asks for a different one and therefore must try every URL rather
+            # than stopping after the first page leaves an unexpired token as-is.
+            if not require_new_token and after and self._has_usable_access_cookie():
+                return True
+
+        if require_new_token:
+            after = self._get_cookie_value("nauk_at")
+            return bool(after and after != before and self._has_usable_access_cookie())
         return self._has_usable_access_cookie()
 
     # ------------------------------------------------------------------
@@ -327,7 +365,7 @@ class NaukriLoginClient:
         except Exception as exc:
             # One retry: refresh the cookies and verify again if the
             # server rotated the token.
-            self._refresh_cookie_session()
+            self._refresh_cookie_session(require_new_token=True)
             refreshed_token = self._get_cookie_value("nauk_at")
             if not refreshed_token or refreshed_token == token:
                 self.naukri_session = None
@@ -351,9 +389,12 @@ class NaukriLoginClient:
     def _fetch_dashboard(self):
         return self.session.get(DASHBOARD_URL, headers=self.build_headers(auth=True))
 
-    def _verify_cookie_session(self):
-        if self.account_id:
+    def _verify_cookie_session(self, force=False):
+        if self.account_id and not force:
             return self.account_id
+
+        if force:
+            self.account_id = None
 
         res = self._fetch_dashboard()
         if not res.ok:
@@ -490,6 +531,108 @@ class NaukriLoginClient:
             raise NaukriParseError(f"Failed to fetch history: {res.status_code}")
 
         return res.json()
+
+    @staticmethod
+    def _normalise_history_job_id(value) -> str | None:
+        """Return one stable string job ID, or None for unusable values."""
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            return None
+        job_id = str(value).strip()
+        return job_id or None
+
+    @staticmethod
+    def _history_item_is_applied(item: dict) -> bool:
+        """Whether one history item has an applied/application-sent status."""
+        statuses = item.get("status") or []
+        if not isinstance(statuses, list):
+            return False
+
+        accepted_values = {"applied", "application sent"}
+        for status in statuses:
+            if not isinstance(status, dict):
+                continue
+
+            value = status.get("statusValue")
+            if isinstance(value, str):
+                value = " ".join(value.split()).casefold()
+                if value in accepted_values:
+                    return True
+
+            status_id = status.get("statusId")
+            if isinstance(status_id, int) and not isinstance(status_id, bool):
+                if status_id in (1, 2):
+                    return True
+            elif isinstance(status_id, str) and status_id.strip() in {"1", "2"}:
+                return True
+
+        return False
+
+    @staticmethod
+    def _history_matching_rows_count(payload: dict) -> int | None:
+        """Non-negative matchingRowsCount, tolerant of the API's string form."""
+        value = payload.get("matchingRowsCount")
+        if isinstance(value, bool):
+            return None
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            return None
+        return count if count >= 0 else None
+
+    def get_recent_application_history(self) -> set[str]:
+        """Return recently applied job IDs across bounded history pages.
+
+        Request/API failures deliberately propagate so the caller can fail
+        soft by retaining its local applied-ID set. Malformed payload entries
+        are ignored; one bad history row must not hide valid siblings.
+        """
+        if not config.APPLICATION_HISTORY_SYNC_ENABLED:
+            return set()
+
+        days = int(config.APPLICATION_HISTORY_DAYS)
+        page_size = int(config.APPLICATION_HISTORY_PAGE_SIZE)
+        max_pages = int(config.APPLICATION_HISTORY_MAX_PAGES)
+        if days <= 0 or page_size <= 0 or max_pages <= 0:
+            raise ValueError("Application-history settings must be positive integers")
+
+        applied_ids: set[str] = set()
+        expected_pages: int | None = None
+
+        for page_number in range(1, max_pages + 1):
+            payload = self.get_application_history(
+                page_size=page_size,
+                days=days,
+                page_number=page_number,
+            )
+
+            if not isinstance(payload, dict):
+                break
+
+            items = payload.get("applyDetails")
+            if not isinstance(items, list):
+                items = []
+
+            for item in items:
+                if not isinstance(item, dict) or not self._history_item_is_applied(item):
+                    continue
+                job_id = self._normalise_history_job_id(item.get("jobId"))
+                if job_id:
+                    applied_ids.add(job_id)
+
+            if expected_pages is None:
+                matching_rows = self._history_matching_rows_count(payload)
+                if matching_rows is not None:
+                    expected_pages = max(1, (matching_rows + page_size - 1) // page_size)
+
+            if expected_pages is not None:
+                if page_number >= expected_pages:
+                    break
+            elif len(items) < page_size:
+                # Older/variant payload without matchingRowsCount: retain the
+                # conventional short-page fallback while staying max-bounded.
+                break
+
+        return applied_ids
 
     def parse_history(self, raw: dict) -> list[ApplicationHistory]:
         results = []

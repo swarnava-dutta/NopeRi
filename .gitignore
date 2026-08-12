@@ -12,8 +12,10 @@ venv/
 .env/
 .venv/
 
-# Logs
+# Logs, plus rotated backups (noperi_debug.log.1) and repair artifacts
+# (noperi_hidden.log.corrupt.bak). logs/noperi_status.txt stays tracked.
 *.log
+*.log.*
 
 # OS files
 .DS_Store

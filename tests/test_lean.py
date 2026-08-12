@@ -1,12 +1,12 @@
 """Self-check for the logic touched by the over-engineering cleanup.
 
-Plain asserts, no test framework:  python test_lean.py
+Plain asserts, no test framework:  python tests/test_lean.py
 
 Covers only what the cleanup actually changed shape of: the questionnaire
 hint lists, the Counter-based run stats, the shuffled() stdlib swap, the
 shared LLM fail-soft path, CSV header-on-first-write, the phase-scoped
-block counters, transient-error retries, HTML-stripped job descriptions, and
-the browse-only gate.
+block counters, transient-error retries, HTML-stripped job descriptions,
+high-recall AI/GenAI role filtering, and the browse-only gate.
 """
 
 import csv
@@ -14,6 +14,9 @@ import os
 import sys
 import tempfile
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.agents import easy_apply_agent
 from src.agents.easy_apply_agent import EasyApplyAgent
@@ -69,7 +72,8 @@ def check_stats_counter():
     # Keys never incremented must read 0, since _print_summary reads them all.
     for key in ("attempted", "applied", "skipped_ext", "skipped_applied",
                 "skipped_blocked", "skipped_excluded", "skipped_irrelevant",
-                "skipped_browse", "failed"):
+                "skipped_browse", "external_written", "external_updated",
+                "external_duplicate", "external_unsaved", "failed"):
         assert stats[key] == 0, key
     stats["applied"] += 1
     stats["applied"] += 1
@@ -203,6 +207,155 @@ def check_jd_is_not_truncated_by_default():
     assert "may be truncated" not in ai_role_filter.SYSTEM_PROMPT
 
 
+def check_genai_title_high_recall_gate():
+    """Clear GenAI builders survive generic JDs; non-target titles do not."""
+    positives = (
+        "Agentic AI Engineer",
+        "GenAI & Agentic AI Engineer",
+        "Senior Python / Conversational AI Engineer",
+        "Salesforce GenAI Engineer",       # "sales" must not match Salesforce
+        "LLM Developer",
+        "LLM Ops Engineer",
+        "LLM Operations Engineer",
+        "LLM Training Engineer",
+        "Agentic AI Engineers",
+        "GenAI Developers",
+        "LLM Architects",
+        "GenAI Data Scientists",
+        "RAG Architect",
+        "GenAI Technical Lead",
+        "Gen AI",
+    )
+    for title in positives:
+        assert ai_role_filter._title_confirms_genai(title), title
+
+    not_overrides = (
+        "GenAI QA Engineer",
+        "Agentic AI Sales Engineer",
+        "Presales GenAI Engineer",
+        "LLM Testing Engineer",
+        "GenAI Product Owner",
+        "RAG Business Analyst",
+        "LLM Data Annotator",
+        "LLM Account Executive",
+        "GenAI Director of Engineering",
+        "Generative AI Consultant",        # ambiguous: model reads the JD
+        "AI Governance",
+        "AI Test Engineer",
+        "Lead Java AI Engineer",           # broad AI: model reads the JD
+        "Computer Vision Engineer",        # broad AI: model reads the JD
+        "Storage Engineer",                # contains letters 'rag', not token
+        "Pragmatic Software Engineer",      # contains letters 'rag', not token
+    )
+    for title in not_overrides:
+        assert not ai_role_filter._title_confirms_genai(title), title
+
+    assert ai_role_filter._title_confirms_genai(
+        "Agentic AI Engineer",
+        "Generic software development and team collaboration.",
+    )
+    assert not ai_role_filter._title_confirms_genai(
+        "Agentic AI Engineer",
+        "Own presales, marketing, and business development.",
+    )
+    for contradiction in (
+        "Own test automation and regression testing.",
+        "Define AI risk policy and ethics controls.",
+        "Lead partnerships, account management, and revenue operations.",
+    ):
+        assert not ai_role_filter._title_confirms_genai(
+            "Agentic AI Engineer", contradiction,
+        ), contradiction
+
+    assert ai_role_filter._is_ordinary_qa_role(
+        "AI Test Engineer",
+        "Automation and performance testing with JMeter and Gatling.",
+    )
+    assert not ai_role_filter._is_ordinary_qa_role(
+        "LLM Testing Engineer",
+        "Own LLM evaluation, red teaming, guardrails, and model quality.",
+    )
+    assert not ai_role_filter._is_ordinary_qa_role(
+        "LLM Testing Engineer",
+        "Design automated test cases and evaluate LLM outputs for "
+        "hallucinations, factuality, and robustness.",
+    )
+
+    saved_api_key = llm.api_key
+    try:
+        llm.api_key = lambda name: {
+            "OPENAI_API_KEY": "",
+            "OPEN_API_KEY": "legacy-key",
+        }.get(name, "")
+        assert ai_role_filter._openai_api_key() == "legacy-key"
+    finally:
+        llm.api_key = saved_api_key
+
+
+def check_ai_role_filter_semantic_contract():
+    """Protect broad AI scope, title fallback, and exact verdict parsing."""
+    for required in (
+        "machine learning",
+        "computer vision",
+        "MLOps/LLMOps",
+        "Programming language is not a gate",
+        "explicit AI/ML/GenAI title is strong evidence",
+    ):
+        assert required in ai_role_filter.SYSTEM_PROMPT, required
+
+    saved_enabled = config.AI_ROLE_FILTER
+    saved_health = ai_role_filter.role_filter_enabled
+    saved_ask = ai_role_filter._ask_openai
+    calls = []
+    config.AI_ROLE_FILTER = True
+    ai_role_filter.role_filter_enabled = lambda: True
+    ai_role_filter._verdict_cache.clear()
+
+    try:
+        def should_not_call(_prompt):
+            raise AssertionError("clear GenAI title unexpectedly called model")
+
+        ai_role_filter._ask_openai = should_not_call
+        assert ai_role_filter.is_relevant_role(
+            "Agentic AI Engineer",
+            description="Generic software development and team collaboration.",
+        ) is True
+        assert ai_role_filter.is_relevant_role(
+            "AI Test Engineer",
+            description="Automation and performance testing with JMeter and Gatling.",
+        ) is False
+
+        responses = iter(("NO", "`YES`", "NO", "not enough information"))
+
+        def fake_model(prompt):
+            calls.append(prompt)
+            return next(responses)
+
+        ai_role_filter._ask_openai = fake_model
+        assert ai_role_filter.is_relevant_role(
+            "Agentic AI Engineer",
+            description="Own presales, marketing, and business development.",
+        ) is False
+        assert ai_role_filter.is_relevant_role(
+            "Computer Vision Engineer",
+            description="Train and deploy deep-learning vision models.",
+        ) is True
+        assert ai_role_filter.is_relevant_role(
+            "AI Governance",
+            description="Own AI policy, compliance, audit, and risk controls.",
+        ) is False
+        assert ai_role_filter.is_relevant_role(
+            "Backend Engineer",
+            description="Build REST APIs.",
+        ) is None
+        assert len(calls) == 4, calls
+    finally:
+        config.AI_ROLE_FILTER = saved_enabled
+        ai_role_filter.role_filter_enabled = saved_health
+        ai_role_filter._ask_openai = saved_ask
+        ai_role_filter._verdict_cache.clear()
+
+
 def check_confirmed_ai_role_is_never_browsed_away():
     """A confirmed AI role must apply even when browse-only is certain to fire.
 
@@ -226,7 +379,7 @@ def check_confirmed_ai_role_is_never_browsed_away():
 
         def apply_job(self, job, **kw):
             _Client.applied += 1
-            return {"jobs": [{}]}
+            return {"success": True, "jobs": [{"jobId": job.job_id}]}
 
     def _run(verdict):
         _Client.applied = 0
@@ -294,6 +447,8 @@ if __name__ == "__main__":
         check_retry_transient_survives_transport_errors,
         check_plain_text_strips_naukri_html,
         check_jd_is_not_truncated_by_default,
+        check_genai_title_high_recall_gate,
+        check_ai_role_filter_semantic_contract,
         check_confirmed_ai_role_is_never_browsed_away,
         check_csv_header_written_once,
     ):

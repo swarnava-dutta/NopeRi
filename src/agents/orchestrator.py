@@ -9,6 +9,7 @@ from src.client.job_client import NaukriJobClient
 from src.client.naukri_client import NaukriLoginClient
 from src.config import agent_config as config
 from src.utils import humanizer
+from src.utils.run_logging import setup_logging
 
 
 class NaukriApplyOrchestrator:
@@ -37,6 +38,11 @@ class NaukriApplyOrchestrator:
             except Exception:
                 pass
 
+        # Install the file handler before anything else runs, so early
+        # login/cookie problems are captured too. Without this, every
+        # logger.debug in the client is discarded.
+        setup_logging()
+
         # Randomized warm-up so scheduled runs never hit Naukri at the
         # exact same second every day.
         humanizer.session_warmup()
@@ -49,8 +55,25 @@ class NaukriApplyOrchestrator:
         if self.daily_limit != config.DAILY_APPLY_LIMIT:
             print(f"🎲 Daily limit jittered: {config.DAILY_APPLY_LIMIT} → {self.daily_limit}")
 
+        recent_applied_ids = set()
+        if config.APPLICATION_HISTORY_SYNC_ENABLED:
+            try:
+                recent_applied_ids = login_client.get_recent_application_history()
+                print(
+                    "🔄 Recent Naukri history synced: "
+                    f"{len(recent_applied_ids)} applied job(s)"
+                )
+            except Exception as exc:
+                # Local applied_jobs.csv remains authoritative fallback. A
+                # temporary history failure must not abort collection/apply.
+                print(f"⚠️ History sync unavailable — using local CSV only: {exc}")
+
         job_client = NaukriJobClient(login_client)
-        easy_apply_agent = EasyApplyAgent(job_client, ExternalLinkAgent())
+        easy_apply_agent = EasyApplyAgent(
+            job_client,
+            ExternalLinkAgent(),
+            known_applied_job_ids=recent_applied_ids,
+        )
 
         leads = self._collect(job_client)
         leads = self._rank(leads)
@@ -133,8 +156,13 @@ class NaukriApplyOrchestrator:
         print(f"⏭️ Already applied: {self.totals['skipped_applied']}")
         print(f"🚫 Blocked companies: {self.totals['skipped_blocked']}")
         print(f"🙅 Excluded roles: {self.totals['skipped_excluded']}")
-        print(f"🧠 Not AI roles (AI judged): {self.totals['skipped_irrelevant']}")
+        print(f"🧠 Outside AI/GenAI target (AI judged): {self.totals['skipped_irrelevant']}")
 
         print(f"👀 Browsed only: {self.totals['skipped_browse']}")
-        print(f"📄 External (logged to CSV): {self.totals['skipped_ext']}")
+        print(f"📄 External detected: {self.totals['skipped_ext']}")
+        print(f"   New CSV rows: {self.totals['external_written']}")
+        print(f"   Direct links updated: {self.totals['external_updated']}")
+        print(f"   Already documented: {self.totals['external_duplicate']}")
+        if self.totals["external_unsaved"]:
+            print(f"   Not saved: {self.totals['external_unsaved']}")
         print(f"⚠️ Failed: {self.totals['failed']}")

@@ -17,22 +17,43 @@ def load_job_ids(csv_file: str) -> set:
     if not os.path.exists(csv_file):
         return set()
 
-    with open(csv_file, "r", newline="", encoding="utf-8") as f:
-        return {row["job_id"] for row in csv.DictReader(f) if row.get("job_id")}
+    # ``utf-8-sig`` accepts both normal UTF-8 and Excel-style BOM files.  A
+    # BOM previously changed the first key to ``\ufeffjob_id`` and made every
+    # recorded application look new.
+    with open(csv_file, "r", newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if not reader.fieldnames:
+            return set()
+        if "job_id" not in reader.fieldnames:
+            raise ValueError(f"{csv_file} is missing required job_id column")
+        return {
+            str(row.get("job_id") or "").strip()
+            for row in reader
+            if str(row.get("job_id") or "").strip()
+        }
 
 
 def write_csv_row(csv_file: str, fieldnames: list[str], row: dict) -> None:
-    """Append one row, writing the header first if the file is new/empty.
-
-    ponytail: no column migration. If you add a field to one of the row
-    schemas below, add the column to the existing CSV by hand (or delete the
-    file) — a rewrite-every-row migration on every single apply is not worth
-    carrying for a change that happens once a year.
-    """
+    """Append one row without corrupting an existing older CSV schema."""
     needs_header = not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0
+    output_fields = list(fieldnames)
+
+    if not needs_header:
+        with open(csv_file, "r", newline="", encoding="utf-8-sig") as existing:
+            current_fields = next(csv.reader(existing), [])
+        if not current_fields:
+            needs_header = True
+        else:
+            # Older applied_jobs.csv files have four columns.  Reusing their
+            # actual header safely drops new optional fields instead of
+            # appending a five-field row beneath a four-field header.
+            output_fields = current_fields
+
+    if "job_id" not in output_fields:
+        raise ValueError(f"{csv_file} is missing required job_id column")
 
     with open(csv_file, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=output_fields, extrasaction="ignore")
         if needs_header:
             writer.writeheader()
         writer.writerow(row)
