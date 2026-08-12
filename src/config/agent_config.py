@@ -10,6 +10,7 @@ change answers; no code change needed.
 
 import json
 import os
+from datetime import date, datetime
 
 _PROFILE_JSON = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -59,9 +60,14 @@ SEARCH_QUERIES = [
 ]
 
 EXPERIENCE_LEVELS = [5]
-SEARCH_PAGES = 3
+# Fetch deep enough that external/already-applied/non-AI results do not leave
+# fewer candidates than the 100-110 confirmed-application run target.
+SEARCH_PAGES = 10
 JOB_AGE_DAYS = 1
-DAILY_APPLY_LIMIT = 100
+# Per-run target for CONFIRMED successful applications. Already-applied,
+# external, excluded, non-AI, browsed, and failed jobs never consume it.
+# With DAILY_LIMIT_JITTER=5 below, each run targets 100..110 successes.
+DAILY_APPLY_LIMIT = 105
 
 # Reconcile recently applied Naukri job IDs before a run so applications made
 # outside this checkout are not submitted again. The history endpoint is
@@ -173,7 +179,7 @@ MAX_BLOCK_PENALTY_SECONDS = 30.0
 MAX_BLOCKS_BEFORE_ABORT = 3
 
 SHUFFLE_SEARCH_QUERIES = True          # shuffle query order each run
-DAILY_LIMIT_JITTER = 3                 # daily limit +/- this amount per run (anti-pattern: never exactly N daily)
+DAILY_LIMIT_JITTER = 5                 # per-run success target +/- this amount
 
 # Transient server error (5xx) retry: Naukri's job APIs randomly return
 # HTTP 500 "System Error" HTML pages (flaky backend, not a client problem).
@@ -213,11 +219,13 @@ APPLY_PAYLOAD_DEFAULTS = {
 # truth for all personal details — do NOT duplicate real values here. These
 # neutral defaults just guarantee every key exists so the agent never crashes.
 _PROFILE_FALLBACK = {
+    "full_name": "",
     "current_ctc": "",
     "expected_ctc": "",
     "gender": "Male",
     "exp_total": "0",
     "exp_ai": "0",
+    "team_mentored": "",
     "notice_days": 30,
     "notice_status": "",
     "last_working_day": "",
@@ -239,12 +247,50 @@ _PROFILE_FALLBACK = {
 }
 
 
+_PROFILE_DATE_FORMATS = (
+    "%d %B %Y",
+    "%d %b %Y",
+    "%B %d %Y",
+    "%b %d %Y",
+    "%Y-%m-%d",
+    "%d-%m-%Y",
+    "%d/%m/%Y",
+)
+
+
+def _remaining_notice_days(last_working_day, today: date | None = None) -> int | None:
+    """Return days until LWD, or None when the profile date cannot be parsed."""
+    if isinstance(last_working_day, datetime):
+        lwd = last_working_day.date()
+    elif isinstance(last_working_day, date):
+        lwd = last_working_day
+    else:
+        value = " ".join(str(last_working_day or "").replace(",", " ").split())
+        lwd = None
+        for date_format in _PROFILE_DATE_FORMATS:
+            try:
+                lwd = datetime.strptime(value, date_format).date()
+                break
+            except ValueError:
+                continue
+        if lwd is None:
+            return None
+
+    current_day = today or datetime.now().astimezone().date()
+    return max((lwd - current_day).days, 0)
+
+
 def _load_profile() -> dict:
     try:
         with open(_PROFILE_JSON, encoding="utf-8") as f:
             data = json.load(f)
         # Merge over the fallback so missing keys never crash the agent.
         merged = {**_PROFILE_FALLBACK, **data}
+        # Notice shrinks every day while serving. LWD is source of truth;
+        # configured notice_days remains fallback for a missing/invalid LWD.
+        remaining_days = _remaining_notice_days(merged.get("last_working_day"))
+        if remaining_days is not None:
+            merged["notice_days"] = remaining_days
         return merged
     except Exception:
         return dict(_PROFILE_FALLBACK)
@@ -253,6 +299,26 @@ def _load_profile() -> dict:
 QUESTIONNAIRE_PROFILE = _load_profile()
 
 DEFAULT_TEXTBOX_ANSWER = "1"
+
+# Free-text fallbacks used when a question is not covered by a fixed rule AND
+# the AI is off / fails / stays evasive after a retry. They must never make
+# the candidate look worse than the truth. See _fallback_text_answer.
+#
+# UNKNOWN_TEXT_ANSWER: last resort for a non-numeric question ("Employee
+# code", "Java version"). A recruiter reads "N/A" as a clean non-answer,
+# whereas an LLM hedge ("I don't have my PAN handy, I'll share it later")
+# reads as a red flag.
+UNKNOWN_TEXT_ANSWER = "N/A"
+
+# SCALE_TEXTBOX_ANSWER: for volume questions ("how many tokens per month",
+# "how many users did it serve"). DEFAULT_TEXTBOX_ANSWER of "1" is literally
+# true of nothing and screens the candidate out.
+#
+# Deliberately NOT a round number. "1000000" reads as an invented marketing
+# figure and invites a follow-up the candidate cannot answer; an uneven,
+# mid-sized value reads like someone quoting a dashboard they actually
+# looked at. Keep it modest enough to defend in an interview.
+SCALE_TEXTBOX_ANSWER = "45000"
 
 # Questions matching these hints are ALWAYS answered "No" (checked before
 # anything else). e.g. "Have you worked here before?", "Have you applied to

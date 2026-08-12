@@ -66,7 +66,7 @@ python main.py
 Edit agent settings in `src/config/agent_config.py`:
 
 - search keywords, locations, experience, pages, and job age
-- daily apply limit (with jitter), mandatory skill split, delays, and payload defaults
+- per-run confirmed-application target (100-110 with jitter), mandatory skill split, delays, and payload defaults
 - `RUN_RECOMMENDED_PHASE=False` to skip recommended jobs and go straight to search agents
 - `RUN_SEARCH_PHASE=False` to run recommended jobs only
 - `DOCUMENT_EXTERNAL_LINKS=True` to save direct company-site links to `external_jobs.csv`

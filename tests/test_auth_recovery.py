@@ -309,7 +309,7 @@ class ApplyLoopRecoveryTests(unittest.TestCase):
             patch("src.agents.easy_apply_agent.humanizer.too_many_blocks", return_value=False),
             patch("builtins.print"),
         ):
-            agent.run(leads, daily_remaining=10)
+            agent.run(leads, apply_target=10)
 
         self.assertEqual(agent._apply_one.call_count, 1)
 

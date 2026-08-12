@@ -123,18 +123,20 @@ class EasyApplyCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Apply not confirmed"):
             self._run_core(first, {"success": False, "jobs": [{"jobId": "1001"}]})
 
-    def test_csv_failure_does_not_mark_job_applied_in_memory(self):
+    def test_csv_failure_still_counts_server_confirmed_apply(self):
         client = _Client({"success": True, "jobs": [{"jobId": "1001"}]})
         agent = self._agent(client)
         stats = empty_stats()
         with (
             patch("src.agents.easy_apply_agent.save_applied_job", side_effect=OSError("disk full")),
             patch("src.agents.easy_apply_agent.humanizer.reading_pause"),
+            patch("builtins.print"),
         ):
-            with self.assertRaisesRegex(OSError, "disk full"):
-                agent._apply_core(JobLead(_job(), "search"), stats, "test job")
-        self.assertNotIn("1001", agent.applied_job_ids)
-        self.assertEqual(stats["applied"], 0)
+            result = agent._apply_core(JobLead(_job(), "search"), stats, "test job")
+        self.assertTrue(result)
+        self.assertIn("1001", agent.applied_job_ids)
+        self.assertEqual(stats["applied"], 1)
+        self.assertEqual(stats["applied_unsaved"], 1)
 
     def test_constructor_unions_local_and_server_history_ids(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -168,6 +170,78 @@ class EasyApplyCaptureTests(unittest.TestCase):
         self.assertEqual(stats["external_updated"], 1)
         self.assertEqual(stats["external_duplicate"], 1)
         self.assertEqual(stats["external_unsaved"], 1)
+
+    def test_only_confirmed_applies_consume_run_target(self):
+        """150 found - 20 external - 20 applied - 5 non-AI = 105 applies."""
+        self.assertGreaterEqual(
+            config.DAILY_APPLY_LIMIT - config.DAILY_LIMIT_JITTER, 100
+        )
+
+        class _TargetClient:
+            def __init__(self):
+                self.details_calls = []
+                self.apply_calls = []
+
+            def get_job_details(self, job_id):
+                self.details_calls.append(job_id)
+                return {"job": {"description": "Build AI systems."}}
+
+            @staticmethod
+            def is_external(_details):
+                return False
+
+            def apply_job(self, job, **_kwargs):
+                self.apply_calls.append(job.job_id)
+                return {"success": True, "jobs": [{"jobId": job.job_id}]}
+
+        class _External:
+            def __init__(self):
+                self.calls = []
+
+            def document(self, job, source):
+                self.calls.append((job.job_id, source))
+                return "duplicate"
+
+        def lead(job_id, *, external=False):
+            job = _job(job_id)
+            job.external = external
+            return JobLead(job, "search")
+
+        leads = (
+            [lead(f"external-{i}", external=True) for i in range(20)]
+            + [lead(f"applied-{i}") for i in range(20)]
+            + [lead(f"non-ai-{i}") for i in range(5)]
+            + [lead(f"target-{i}") for i in range(105)]
+        )
+
+        client = _TargetClient()
+        external = _External()
+        agent = EasyApplyAgent.__new__(EasyApplyAgent)
+        agent.job_client = client
+        agent.external_link_agent = external
+        agent.applied_job_ids = {f"applied-{i}" for i in range(20)}
+        agent._role_verdict = lambda job, _description: not job.job_id.startswith("non-ai-")
+
+        with (
+            patch("src.agents.easy_apply_agent.save_applied_job"),
+            patch("src.agents.easy_apply_agent.humanizer.light_shuffle", side_effect=lambda items, _drift: items),
+            patch("src.agents.easy_apply_agent.humanizer.too_many_blocks", return_value=False),
+            patch("src.agents.easy_apply_agent.humanizer.reading_pause"),
+            patch("src.agents.easy_apply_agent.humanizer.human_delay"),
+            patch("src.agents.easy_apply_agent.humanizer.maybe_long_break"),
+            patch("src.agents.easy_apply_agent.humanizer.note_job"),
+            patch("builtins.print"),
+        ):
+            stats = agent.run(leads, apply_target=105)
+
+        self.assertEqual(stats["found"], 150)
+        self.assertEqual(stats["skipped_ext"], 20)
+        self.assertEqual(stats["skipped_applied"], 20)
+        self.assertEqual(stats["skipped_irrelevant"], 5)
+        self.assertEqual(stats["attempted"], 105)
+        self.assertEqual(stats["applied"], 105)
+        self.assertEqual(len(client.apply_calls), 105)
+        self.assertEqual(len(external.calls), 20)
 
 
 if __name__ == "__main__":

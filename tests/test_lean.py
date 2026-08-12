@@ -33,12 +33,29 @@ YES_NO = {"1": "Yes", "2": "No"}
 
 
 def _answer(question, qtype="radio button", options=None):
-    return _answer_one(
-        {"questionId": "q", "questionName": question, "questionType": qtype,
-         "answerOption": options if options is not None else YES_NO},
-        config.QUESTIONNAIRE_PROFILE,
-        [],
-    )
+    """Answer one question with the AI stubbed out.
+
+    Answering is AI-first in production, but these checks cover the rule
+    layer: the strategy rules that must win over the model, and the offline
+    cascade that runs when it is unavailable. Letting a real API call happen
+    here would make the suite slow, network-dependent, and non-deterministic
+    — a live model returning a different-but-valid answer is not a
+    regression, so it must not be able to fail the build.
+    """
+    import src.utils.questionnaire as qn
+
+    saved_text, saved_option = qn.ai_text_answer, qn.ai_option_answer
+    qn.ai_text_answer = lambda _q: None
+    qn.ai_option_answer = lambda *_a, **_k: None
+    try:
+        return _answer_one(
+            {"questionId": "q", "questionName": question, "questionType": qtype,
+             "answerOption": options if options is not None else YES_NO},
+            config.QUESTIONNAIRE_PROFILE,
+            [],
+        )
+    finally:
+        qn.ai_text_answer, qn.ai_option_answer = saved_text, saved_option
 
 
 def check_f2f_hints_still_force_no():
@@ -63,6 +80,324 @@ def check_f2f_hints_still_force_no():
 
     # A plain (non-F2F) interview availability question still answers Yes.
     assert _answer("Are you available for a telephonic interview?") == ["1"]
+
+
+def check_profile_answers_every_free_text_type():
+    """Profile rules must run for EVERY typed question, not just "Text Box".
+
+    Naukri also sends "date", "Text Area", and option-less "List Menu"; those
+    used to bypass all the fixed rules and reach the LLM, which then invented
+    a date of birth or a PAN instead of reading candidate_profile.json.
+    """
+    profile = config.QUESTIONNAIRE_PROFILE
+    cases = (
+        ("Date of Birth", "date_of_birth"),
+        ("PAN Number", "pan_number"),
+        ("LinkedIn Profile", "linkedin_url"),
+        ("Mobile Number", "phone"),
+        ("Current Location", "current_location"),
+        ("Current Company", "current_company"),
+        ("Email ID", "email"),
+        ("Mention the email which is registered with TCS",
+         "tcs_registration_email"),
+        ("Share your TCS EP number", "tcs_ep_number"),
+        ("Full Name", "full_name"),
+    )
+    for qtype in ("text box", "date", "text area", "list menu", ""):
+        for question, key in cases:
+            got = _answer(question, qtype=qtype, options={})
+            assert got == profile[key], (qtype, question, got)
+
+    # full_name is split for the first/last variants recruiters actually ask.
+    first, last = profile["full_name"].split()[0], profile["full_name"].split()[-1]
+    assert _answer("First Name", qtype="text box", options={}) == first
+    assert _answer("Last Name", qtype="text box", options={}) == last
+    # ...but a company/college name is not the candidate's name.
+    assert _answer("Current Company Name", qtype="text box", options={}) == \
+        profile["current_company"]
+
+
+def check_evasive_ai_answers_are_discarded():
+    """A hedge/deferral is not an answer — it must never reach the form.
+
+    The detector matches the SHAPE of an evasion, not remembered sentences:
+      1. negated possession/provision  "I don't have it"
+      2. provision promised for later  "I'll share it"
+      3. provision tied to a process   "upon request during onboarding"
+
+    So the fixtures below are deliberately split. The first group is real
+    output captured from logs/noperi_hidden.log; the second is held-out
+    rewordings that appear nowhere in the patterns, which is what proves the
+    rule generalizes instead of memorizing. The old detector needed an
+    "unavailable" phrase AND a source word ("profile"), so every answer in
+    the first group was submitted verbatim.
+    """
+    from src.utils.ai_answer import _mentions_missing_profile_data as evasive
+
+    observed = (
+        "I don't have an employee code to share as I'm not currently "
+        "employed at the organization being asked about.",
+        "I don't have my PAN number readily available, but I can provide it "
+        "upon request during the formal onboarding process.",
+        "I don't have my PAN number readily available in the provided "
+        "information. I'll furnish it during the document upload process.",
+        "I can provide my last working day date upon finalization of the offer.",
+        "I don't have specific data on monthly token consumption.",
+        "I don't have my CIBIL score screenshot readily available, but I can "
+        "provide it upon request during the verification process.",
+        "I don't have a specific LinkedIn profile URL to provide, but I'm "
+        "active on LinkedIn and can be reached there upon request.",
+    )
+    held_out = (
+        "That information is not something I can disclose at this point.",
+        "Regrettably I am unable to furnish those particulars right now.",
+        "My Aadhaar is not with me at the moment.",
+        "I would be glad to supply the certificate once shortlisted.",
+        "The reference number can be produced on demand.",
+        "I shall send the payslips prior to joining.",
+        "I cannot recall the exact figure offhand.",
+        "Happy to disclose this at the appropriate stage.",
+        "Details will be submitted during the background check.",
+        "This will be confirmed closer to the offer.",
+        "I lack the paperwork needed to answer this.",
+        # Denies the ANSWER rather than the possession of a document.
+        "I have no data on token burn metrics from my work history.",
+        "This question is not applicable to my professional profile.",
+        "I have no record of that.",
+    )
+    for bad in observed + held_out:
+        assert evasive(bad) is True, bad
+
+    # Genuine answers must survive — including ones that merely LOOK evasive
+    # because they contain "no", "not", "during", "after", or an offer to do
+    # something ("share my screen") rather than to hand a value over later.
+    for good in (
+        "N/A", "n/a", "No", "None", "Yes", "6", "9 September 1997",
+        "CSNPD8764M", "Kolkata", "Not applicable", "No experience",
+        "I have built RAG pipelines with LangChain and LangGraph.",
+        "I have no objection to relocating to Hyderabad or Bangalore.",
+        "I can share my screen during the technical round.",
+        "I have all the required documents ready.",
+        "I have provided support to five enterprise clients.",
+        "I can start immediately after 1 September 2026.",
+        "I have no gaps in my employment history.",
+        "During my tenure at TEKsystems I built agentic AI systems.",
+        "I can join within 30 days.",
+        # Positive "no ..." statements: the negation is the good news here,
+        # so they must not be confused with a denial of the answer itself.
+        "I have no issues with night shifts.",
+        "There are no blockers on my end.",
+        # Confident quantities produced by the committed-answer rule.
+        "1500000",
+        "10 million records across multiple enterprise RAG projects.",
+    ):
+        assert evasive(good) is False, good
+
+
+def check_unanswerable_text_falls_back_to_na():
+    """With the AI off, a fallback must never make the candidate look worse.
+
+    A blank-ish answer is not neutral: "N/A" on "can you share X" reads as a
+    refusal, and "1" on a volume question reads as no production experience.
+    """
+    # No sensible value exists → clean non-answer.
+    assert _answer("Employee Code", qtype="text box", options={}) == "N/A"
+    assert _answer("Java Version:", qtype="text box", options={}) == "N/A"
+
+    # Willingness to supply something is always Yes — never an apology.
+    for q in (
+        "Can you share the Screenshot of your CIBIL score",
+        "Can you provide your last 3 months payslips?",
+        "Are you willing to share your Aadhaar card?",
+        "Would you be able to submit your relieving letter?",
+        "Can you bring the original documents?",
+    ):
+        assert _answer(q, qtype="text box", options={}) == "Yes", q
+
+    # ...but when the profile HAS the value, the value beats "Yes".
+    profile = config.QUESTIONNAIRE_PROFILE
+    assert _answer("Can you share your PAN number?", qtype="text box",
+                   options={}) == profile["pan_number"]
+    assert _answer("Could you provide your LinkedIn profile?",
+                   qtype="text box", options={}) == profile["linkedin_url"]
+
+    # Inverted polarity ("any objection to...") must not answer "Yes".
+    assert _answer("Any objection to sharing your reference details?",
+                   qtype="text box", options={}) != "Yes"
+
+    # Experience questions still resolve from the profile.
+    assert _answer(
+        "How many years of Kubernetes?", qtype="text box", options={}
+    ) == profile["exp_total"]
+
+    # Volume questions get a credible production figure, not "1".
+    for q in ("How many tokens have you burnt in a month?",
+              "How many users did your system serve?",
+              "Number of documents processed per day?"):
+        got = _answer(q, qtype="text box", options={})
+        assert got == config.SCALE_TEXTBOX_ANSWER, (q, got)
+        assert int(got) > 1000, got
+
+
+def check_profile_context_sends_every_field():
+    """Answering is AI-first, so the model must see the WHOLE profile.
+
+    Each field used to need a hand-written line in _profile_context AND a
+    matching keyword rule, so a key added to candidate_profile.json was
+    invisible until both were edited. Serializing the dict means a new field
+    works on the next run with no code change.
+    """
+    from src.utils.ai_answer import _profile_context
+
+    context = _profile_context()
+    profile = config.QUESTIONNAIRE_PROFILE
+
+    for key, value in profile.items():
+        if not value:
+            continue                      # empty fields are skipped as noise
+        if isinstance(value, (list, tuple)):
+            needle = str(value[0])
+        else:
+            needle = str(value)
+        assert needle in context, (key, needle)
+
+    # An unknown key still reaches the model, labelled from its own name.
+    profile["favourite_editor"] = "Neovim"
+    try:
+        refreshed = _profile_context()
+        assert "favourite editor: Neovim" in refreshed, refreshed
+    finally:
+        profile.pop("favourite_editor")
+
+
+def check_ctc_breakup_is_not_invented():
+    """The salary breakup must come from the profile, never from a guess.
+
+    Asked for a fixed/variable split the model assumed a typical 80/20 one
+    ("Fixed: 32 lakhs, Variable: 8.5 lakhs") when the whole CTC is fixed. A
+    breakup that contradicts the payslip is caught at verification, so the
+    split has to be stated in candidate_profile.json and used verbatim.
+    """
+    profile = config.QUESTIONNAIRE_PROFILE
+
+    # The split is data, not something the prompt or a rule may infer.
+    assert profile["current_ctc_fixed"] == profile["current_ctc"], profile
+    assert profile["current_ctc_variable"] == "0", profile
+
+    from src.utils.ai_answer import _profile_context
+
+    context = _profile_context()
+    assert "Current FIXED CTC" in context, context
+    assert "Current VARIABLE CTC" in context, context
+    # The zero must survive the empty-value filter: "0" is a real answer,
+    # and dropping it would let the model assume a variable component again.
+    variable_line = [l for l in context.splitlines() if "VARIABLE CTC" in l]
+    assert variable_line and "0" in variable_line[0], context
+
+
+def check_ctc_units_and_dynamic_notice():
+    """Unitless text stays readable; restricted inputs stay numeric-only."""
+    from datetime import date
+
+    from src.config.agent_config import _remaining_notice_days
+
+    assert _remaining_notice_days(
+        "28 August 2026", date(2026, 8, 12)
+    ) == 16
+    assert _remaining_notice_days(
+        "1 August 2026", date(2026, 8, 12)
+    ) == 0
+    assert _remaining_notice_days("not a date", date(2026, 8, 12)) is None
+
+    profile = config.QUESTIONNAIRE_PROFILE
+    saved_notice = profile["notice_days"]
+    profile["notice_days"] = 16
+    try:
+        assert _answer("Current CTC:", qtype="text box", options={}) == "40.5 LPA"
+        assert _answer("Expected CTC:", qtype="text box", options={}) == "55 LPA"
+        assert _answer("Notice period:", qtype="text box", options={}) == "16 days"
+
+        # Unit already stated: do not repeat it. Explicit numeric-only CTC
+        # fields retain raw annual INR, as required by Naukri's API.
+        assert _answer("Current CTC in LPA", qtype="text box", options={}) == "40.5"
+        assert _answer("Expected CTC in lakhs", qtype="text box", options={}) == "55"
+        assert _answer("Notice period in days", qtype="text box", options={}) == "16"
+        assert _answer(
+            "Current CTC (Numeric Input Only)", qtype="text box", options={}
+        ) == "4050000"
+
+        # Custom forms sometimes send notice options in descending order.
+        # Selection must use duration, not whichever qualifying label appears first.
+        descending_days = {"90": "90", "60": "60", "30": "30", "15": "15"}
+        assert _answer(
+            "Notice Period (In Days)", qtype="list menu",
+            options=descending_days,
+        ) == ["30"]
+        status_options = {
+            "not": "Not Serving Notice Period",
+            "serving": "Serving Notice Period",
+        }
+        assert _answer(
+            "What is your notice period?", qtype="list menu",
+            options=status_options,
+        ) == ["serving"]
+
+        lwd_answer = _answer(
+            "What is your notice period? Please mention LWD if serving notice",
+            qtype="text box", options={},
+        )
+        assert lwd_answer == "16 days; LWD: 28 August 2026", lwd_answer
+    finally:
+        profile["notice_days"] = saved_notice
+
+
+def check_headcount_comes_from_profile():
+    """"How many people have you mentored?" is a headcount, not a duration.
+
+    It contains "how many", so without its own rule it fell through to the
+    years rule (answering the experience years) or to the LLM, which invented
+    a different number on every application.
+    """
+    profile = config.QUESTIONNAIRE_PROFILE
+    for q in (
+        "How many people have you mentored?",
+        "How many engineers have you led?",
+        "What is the size of the team you mentored?",
+        "Number of developers you have managed?",
+    ):
+        got = _answer(q, qtype="text box", options={})
+        assert got == profile["team_mentored"], (q, got)
+
+    # A years question that also mentions leading must stay a years answer.
+    assert _answer("How many years have you led AI projects?",
+                   qtype="text box", options={}) == profile["exp_ai"]
+
+
+def check_long_answers_are_not_cut_mid_word():
+    """A visibly truncated sentence is a worse tell than a short answer.
+
+    The old hard slice at 500 chars produced "...RAGAS for retrieval quality
+    me", which reads as broken automation on a real application.
+    """
+    from src.utils.ai_answer import _clean_text_answer
+
+    # Short answers pass through untouched.
+    assert _clean_text_answer("  9  ") == "9"
+    assert _clean_text_answer('"Kolkata"') == "Kolkata"
+
+    # Multi-sentence overflow trims back to the last complete sentence.
+    long_answer = ("I built a multi-agent RAG system using LangGraph. " * 12)
+    out = _clean_text_answer(long_answer)
+    assert len(out) <= 500, len(out)
+    assert out.endswith("."), out
+    assert not out.endswith(" ."), out
+    assert "LangGraph" in out
+
+    # A single unbroken sentence still ends on a whole word, not mid-token.
+    unbroken = "word " * 200
+    out2 = _clean_text_answer(unbroken)
+    assert len(out2) <= 500, len(out2)
+    assert not out2.rstrip(".").endswith("wor"), out2
 
 
 def check_stats_counter():
@@ -440,6 +775,14 @@ if __name__ == "__main__":
 
     for check in (
         check_f2f_hints_still_force_no,
+        check_profile_answers_every_free_text_type,
+        check_evasive_ai_answers_are_discarded,
+        check_unanswerable_text_falls_back_to_na,
+        check_profile_context_sends_every_field,
+        check_ctc_breakup_is_not_invented,
+        check_ctc_units_and_dynamic_notice,
+        check_headcount_comes_from_profile,
+        check_long_answers_are_not_cut_mid_word,
         check_stats_counter,
         check_shuffled_is_a_copy,
         check_llm_fails_soft_and_trips,

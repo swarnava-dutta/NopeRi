@@ -139,8 +139,8 @@ class EasyApplyAgent:
     # Apply
     # ------------------------------------------------------------------
 
-    def run(self, leads: list, daily_remaining: int) -> dict:
-        """Apply down the newest-first pool until the budget runs out."""
+    def run(self, leads: list, apply_target: int) -> dict:
+        """Run until ``apply_target`` jobs are confirmed applied."""
         stats = empty_stats(found=len(leads))
         self._stop_run = False
         self._consecutive_auth_failures = 0
@@ -151,8 +151,8 @@ class EasyApplyAgent:
             print("\nℹ️ No new jobs to apply.")
             return stats
 
-        if daily_remaining <= 0:
-            print("🛑 Daily apply limit reached.")
+        if apply_target <= 0:
+            print("🛑 Run apply target is zero.")
             return stats
 
         # Humans don't work strictly top-to-bottom through a result list —
@@ -161,12 +161,12 @@ class EasyApplyAgent:
 
         print(
             f"\n🔎 Reviewing {len(pending)} candidate jobs "
-            f"(apply budget: {daily_remaining})"
+            f"(confirmed apply target: {apply_target})"
         )
 
         for lead in pending:
-            if stats["applied"] >= daily_remaining:
-                print("🛑 Daily apply limit reached.")
+            if stats["applied"] >= apply_target:
+                print("🎯 Run apply target reached.")
                 break
 
             # Abort the run entirely if the server keeps pushing back —
@@ -191,6 +191,16 @@ class EasyApplyAgent:
             # long "walked away" breaks.
             humanizer.human_delay(config.APPLY_DELAY_MIN_SECONDS, config.APPLY_DELAY_MAX_SECONDS)
             humanizer.maybe_long_break()
+
+        if (
+            stats["applied"] < apply_target
+            and not self._stop_run
+            and not humanizer.too_many_blocks()
+        ):
+            print(
+                f"ℹ️ Candidate pool exhausted: {stats['applied']}/{apply_target} "
+                "confirmed applications. Skipped jobs did not consume target."
+            )
 
         return stats
 
@@ -340,10 +350,17 @@ class EasyApplyAgent:
                 f"Apply not confirmed ({outcome.status.value}): {outcome.reason}"
             )
 
-        save_applied_job(job, questionnaire_answers=questionnaire_answers)
         self._consecutive_auth_failures = 0
         self.applied_job_ids.add(outcome.job_id)
         stats["applied"] += 1
+
+        # Server confirmation is the source of truth for the run target. A
+        # local CSV problem must not make us submit one extra real application.
+        try:
+            save_applied_job(job, questionnaire_answers=questionnaire_answers)
+        except Exception as exc:
+            stats["applied_unsaved"] += 1
+            print(f"⚠️ Applied, but local CSV save failed: {label_text} | {exc}")
 
         print(f"✅ Applied: {label_text} ({age_label(job)})")
         return True

@@ -65,7 +65,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786522633.0,
+    "expirationDate": 1786532044.0,
     "hostOnly": false,
     "httpOnly": false,
     "name": "bm_sv",
@@ -74,11 +74,11 @@
     "secure": true,
     "session": false,
     "storeId": null,
-    "value": "A018EDABE6762A5CBC5C551A8D297B9F~YAAQjonTFwi4uuqfAQAAZCee9ACkvVB4Xq0Jk4301gN85IrzpgrKbQvNOOX1u1uc89LpE8kwc1thXLj+pTrFon9a1PPaHCWVO034LzsE9NaVx7ODQbZZhUe67QzPAilKMxpnYdAmjo3m5hqon4KGftA5bKABcC0MOGNjc6cX3wk4Fi5EmRnxOyhbxBbF9eU+5WeNFgiiwM8vXH3h+8J893PZv+PRkdbJQjbWs6BT7fpZ7ZW64J2LBZNaRCqzQ5xl~1"
+    "value": "D976A73DCEEA90EF7C3530C853C14EDA~YAAQjonTF8XK8uqfAQAAV8It9QACmBbdaAOckizURAjRxdCtzm1k38O315ZjnUEc/WLRhPH4CqrwA5wjn99u4oGbBW9gFsU8YPY4JdJkJaCPNWH2rS1GYxWkMMsvkrog5hth7g6d+hdo6ENoReKoC02hQ1l6V0x9sNz4ZAQXdciRFZWtGYQSooJKc/LPrCD9ipAojp+eEvibdQp3tq6pmbUSXrxYVTl/ZtoOEEUnZWyuyvM/qqkTQrqmtzp3SZTb~1"
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786519823.0,
+    "expirationDate": 1786524844.0,
     "hostOnly": false,
     "httpOnly": false,
     "name": "bm_mi",
@@ -87,7 +87,7 @@
     "secure": true,
     "session": false,
     "storeId": null,
-    "value": "9D787AA7709DFF9EAC95AB4D77C91F30~YAAQjonTF8m3uuqfAQAAOCae9ADlwGzXNflj3ESVJ76TNMirAfgbyQWrTLyg1q7kBUcCQKdnXWwNnpWNSb7aGwTFH33LtD5nIRuDJ0ki28k9Chfs4BOpSo0+9a1Cqw/m0tyUYjIA/oXyjP0sCXSeAv0SXFLCLEwioQ7/cGr5xVbyQzKkMarsE4FofaxABZLnk7RUjhVhQI/z+NykokIn2j0sjRIXgxSZUny0rP2aiHa38r/DN6U+rVEn4KfunbsSruS3nDX7dswfEB0M+rCLvdiDIlOpl0I4RLCXT/G2g8Kn9W3Yc7KACsNtJbQM6JTUktgWuxVtjuQ1mwkSgw==~1"
+    "value": "1FC0C0EBC311EED1F7B66BD2A98C3449~YAAQjonTF8TK8uqfAQAAV8It9QBEpudDUiYoztWMMw7EX20sV7GKjrJobBQGUkX/JsVcxjpO2aYrfSNBbJFqnCkNd7ko6p2nPpMdwu+nsN7GmSzzrjReGOrxyGtVn2J62efHR4FD5eyB7aS8RjaRbxnI28R02TcPSK/Vh5R/iULZp7s6NG/Y1+g9yqhipi5mDXllOaWMS1aZDiX5Z6m1QEfxfJwxl+jQ9/qL8zDHXra3GBOC/1Sxng/yDT97XZJ2WcdgHmSt0kyv8DRGheqmxeWDcksfV68ldKGS2FtClLv+piBR0qhOHvzthEWtTIN4WTj8vNVmk/52o5lrCw==~1"
   },
   {
     "domain": "www.naukri.com",
@@ -104,7 +104,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786515433.0,
+    "expirationDate": 1786524844.0,
     "hostOnly": false,
     "httpOnly": false,
     "name": "nauk_cs",
@@ -169,7 +169,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786519822.0,
+    "expirationDate": 1786532043.0,
     "hostOnly": false,
     "httpOnly": true,
     "name": "ak_bmsc",
@@ -178,11 +178,11 @@
     "secure": false,
     "session": false,
     "storeId": null,
-    "value": "E9CE55E7292C568D5FDE291E588C6F03~000000000000000000000000000000~YAAQjonTF8i3uuqfAQAAOCae9AAmVyxRDM3WTZOPGAwdwlUpDoGQnx6b1KwYlSpEfcBOyUb/5VS1WyQsLNrR2PzROVI7lpwHz2q5rE3ox5/vyTb8e8Cto77hFYmK0sXZL8Y2gYC5IZPYSoC1CLM9z9Ios9NsNy+IwGc2SicZhzbHo1zg5bym53egT9Pv4H4a5ibwRhRoe95nX/sGii/dROD5Ef07ixSsT/P/9Dd+ZLzoh0lkqvyX+WRUi78YFu9pnBmshM1uu4HHfnPXeX6+lfrxOSYwRMIjg81Zr50ETmm1a5dLEWhJsKcIDFx3hGNi38OWo7IF0Da5NLfQ9ZL4WJB4YgduFvDGc21ZMFKQumeM/Klzjm30W9G95l8yyRMxDyo1HiylSYk07siVnM5VgA51CNNThkvN78pBVhc="
+    "value": "0CE7F7B8B7013F5BDDD40A92DAFBC38D~000000000000000000000000000000~YAAQjonTF8PK8uqfAQAAV8It9QCuc3nczLLKDVY/z7No0WLD3gfkkEbnpRyHPE85ZDaaeak+0c9FpwkxAjTn4dwYR1rlP4ZLtG1jIBQuPwCqF+MSA9p7SSoCiTX3TRlh8s5r4HIDvt90MHY1Gby6jgOHItiGIUysD2z9IkUWe7CGaHGfp/xYQXWN5aJMBNVJlsk2vk/qlfaptvn4ikoUTVD2mKGuW6o0c+V2TtN5+bj9KsxEyVHS5fHnrzXy4QIYMGGHLzEavUoXCfeTsXkw1BP9uLUG5Xf815EYeQC4bDackMp28fMQC1FjMsfUppqp2A2vIRDcuB9I/scSPdboElUJCh+Py/SZ73HmTsSqFFPSAbOmlA5ORK0QE6hafkOofTEcmrj1NFhsJqxwo6t3YBPaNxIOwXmAFA6iQIM="
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786519032.0,
+    "expirationDate": 1786528443.0,
     "hostOnly": false,
     "httpOnly": true,
     "name": "is_login",
@@ -208,7 +208,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786519032.0,
+    "expirationDate": 1786528443.0,
     "hostOnly": false,
     "httpOnly": false,
     "name": "nauk_at",
@@ -217,7 +217,7 @@
     "secure": true,
     "session": false,
     "storeId": null,
-    "value": "eyJraWQiOiIzIiwidHlwIjoiSldUIiwiYWxnIjoiUlM1MTIifQ.eyJkZXZpY2VUeXBlIjoiZGVza3RvcCIsInVkX3Jlc0lkIjoiMTUwNjEyNDI1Iiwic3ViIjoiMTYwNzk1ODA3IiwidWRfdXNlcm5hbWUiOiJzd2FybmF2YS5kdXR0YTk3QGdtYWlsLmNvbSIsImlzcyI6IkluZm9FZGdlIEluZGlhIFB2dC4gTHRkLiIsInVzZXJBZ2VudCI6IkFwYWNoZS1IdHRwQ2xpZW50LzQuNS41IChKYXZhLzEuOC4wXzQ0MikiLCJ1c2VySWQiOjE2MDc5NTgwNywic3ViVXNlclR5cGUiOiIiLCJ1c2VyU3RhdGUiOiJBVVRIRU5USUNBVEVEIiwidXNlclR5cGUiOiJqb2JzZWVrZXIiLCJzZXNzaW9uU3RhdFRpbWUiOiIyMDI2LTA3LTIwVDEzOjQxOjQzIiwidXNlclJvbGUiOiJ1c2VyIiwiZXhwIjoxNzg2NTE5MDMyLCJ0b2tlblR5cGUiOiJhY2Nlc3NUb2tlbiIsImlhdCI6MTc4NjUxNTQzMiwianRpIjoiM2Q0NjVlMTBiMzkwNDY1MmJjMzBhY2MxMmYzNjgxYzMiLCJwb2RJZCI6InByb2QtNWJiYzZiYjU5Yi1qZndqcCJ9.LwSJ-rx7HE86CWgIfOPiHO4AO4njV0XNbKTxLUHkfyicKEsFb6EMQ_jKU0I0j-ammvk24jXbYznM4yg4aXjA_OVSVFVdwH-mwquO1sI0UEMa6LXRpNJYEQmOluMs5XpS5_uGXrNHMNkCRAJ-_HKTqC9GAdm4nhkEkfoFmlP8BnBYJkU68L_xyCX4_u2e_pg5V4pet5JE2nxwOWOqT5_RDpUdze52qOYCySpkwQaDKy8vWV31Ri8wSrcocqGRgs5PbYCl-Ib96AC9KsaEOkUAeowOupJOZfwu3tlVCy7BNLp74hD3cgOESJZHmQQ_YL-o7ZcLTsSOr--DNxkk845p1Q"
+    "value": "eyJraWQiOiIzIiwidHlwIjoiSldUIiwiYWxnIjoiUlM1MTIifQ.eyJkZXZpY2VUeXBlIjoiZGVza3RvcCIsInVkX3Jlc0lkIjoiMTUwNjEyNDI1Iiwic3ViIjoiMTYwNzk1ODA3IiwidWRfdXNlcm5hbWUiOiJzd2FybmF2YS5kdXR0YTk3QGdtYWlsLmNvbSIsImlzcyI6IkluZm9FZGdlIEluZGlhIFB2dC4gTHRkLiIsInVzZXJBZ2VudCI6IkFwYWNoZS1IdHRwQ2xpZW50LzQuNS41IChKYXZhLzEuOC4wXzQ0MikiLCJ1c2VySWQiOjE2MDc5NTgwNywic3ViVXNlclR5cGUiOiIiLCJ1c2VyU3RhdGUiOiJBVVRIRU5USUNBVEVEIiwidXNlclR5cGUiOiJqb2JzZWVrZXIiLCJzZXNzaW9uU3RhdFRpbWUiOiIyMDI2LTA3LTIwVDEzOjQxOjQzIiwidXNlclJvbGUiOiJ1c2VyIiwiZXhwIjoxNzg2NTI4NDQzLCJ0b2tlblR5cGUiOiJhY2Nlc3NUb2tlbiIsImlhdCI6MTc4NjUyNDg0MywianRpIjoiM2Q0NjVlMTBiMzkwNDY1MmJjMzBhY2MxMmYzNjgxYzMiLCJwb2RJZCI6InByb2QtNWJiYzZiYjU5Yi00bW4yeiJ9.SqVEG4G28DPK4QFjNXcxy5T3O3z-llfnKwwc4UmHw0_gfXcJFTfcILi7fUKdVwXeOBMDywznKRyd5FJUnDs2NAnJQOj8Gq55Q4XL1KjBPOt0xGkjE1cpT7hGrWXjfzBYSLTPNbAuXThPd_Vuyb_Mnudqaw4-yrWaMxDzPHBpf9SjMoo4A_47rHH7KD39fFWVrnQ9KJqcrKpXNRjgphonyjh8WP6MXPcGhkL03VpBhiAlx2RfkuzkRjb7SAKxpwKHKYjTT1YBiGsCozKHWUtR6TzARafM02-NRIGdqsf0YJGRn4WIBEsffea8-rVYASq4qEREKX6iowEG2nOobUjNRQ"
   },
   {
     "domain": ".naukri.com",
@@ -234,7 +234,7 @@
   },
   {
     "domain": ".naukri.com",
-    "expirationDate": 1786515433.0,
+    "expirationDate": 1786524844.0,
     "hostOnly": false,
     "httpOnly": false,
     "name": "nauk_ps",

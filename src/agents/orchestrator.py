@@ -25,9 +25,11 @@ class NaukriApplyOrchestrator:
     def __init__(self) -> None:
         self.seen_job_ids = set()
         self.totals = empty_stats()
-        # Jitter the daily limit so the account doesn't apply to exactly
-        # the same number of jobs every single day (a strong bot signal).
-        self.daily_limit = humanizer.jitter_int(config.DAILY_APPLY_LIMIT, config.DAILY_LIMIT_JITTER)
+        # Per-run SUCCESS target, not jobs reviewed and not a calendar-day
+        # quota. Skips never reduce it.
+        self.apply_target = humanizer.jitter_int(
+            config.DAILY_APPLY_LIMIT, config.DAILY_LIMIT_JITTER
+        )
 
     def run(self) -> None:
         # Not redundant with Run Noperi.bat's PYTHONIOENCODING: a bare
@@ -52,8 +54,13 @@ class NaukriApplyOrchestrator:
         login_client.login()
         print("✅ Login successful")
 
-        if self.daily_limit != config.DAILY_APPLY_LIMIT:
-            print(f"🎲 Daily limit jittered: {config.DAILY_APPLY_LIMIT} → {self.daily_limit}")
+        if self.apply_target != config.DAILY_APPLY_LIMIT:
+            print(
+                f"🎲 Run apply target jittered: "
+                f"{config.DAILY_APPLY_LIMIT} → {self.apply_target} confirmed"
+            )
+        else:
+            print(f"🎯 Run apply target: {self.apply_target} confirmed")
 
         recent_applied_ids = set()
         if config.APPLICATION_HISTORY_SYNC_ENABLED:
@@ -146,13 +153,15 @@ class NaukriApplyOrchestrator:
         # Apply-side 403/429s still count from zero and can still abort.
         humanizer.reset_blocks()
 
-        self.totals = easy_apply_agent.run(leads, self.daily_limit)
+        self.totals = easy_apply_agent.run(leads, self.apply_target)
 
     def _print_summary(self) -> None:
         print("\n📊 Run summary")
         print(f"📦 Fetched: {self.totals['found']}")
         print(f"🚀 Attempted: {self.totals['attempted']}")
         print(f"✅ Applied: {self.totals['applied']}")
+        if self.totals["applied_unsaved"]:
+            print(f"   Local CSV save failed: {self.totals['applied_unsaved']}")
         print(f"⏭️ Already applied: {self.totals['skipped_applied']}")
         print(f"🚫 Blocked companies: {self.totals['skipped_blocked']}")
         print(f"🙅 Excluded roles: {self.totals['skipped_excluded']}")

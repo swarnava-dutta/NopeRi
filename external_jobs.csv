@@ -147,7 +147,7 @@ job_id,title,company,source,apply_link,documented_at
 210526503520,AI Engineer SQA Productivity & Automation,Vayavya Labs,search,https://www.naukri.com/job-listings-ai-engineer-sqa-productivity-automation-vayavya-labs-bengaluru-1-to-5-years-210526503520,2026-05-23T17:58:46.609858
 210526504418,Sr AI Engineer,Staples,search,https://www.naukri.com/job-listings-sr-ai-engineer-staples-india-innovation-business-hub-private-limited-chennai-4-to-6-years-210526504418,2026-05-23T17:58:53.128474
 210526501883,Advanced AI Engr,Sparta Systems,search,https://www.naukri.com/job-listings-advanced-ai-engr-spartasystems-bengaluru-4-to-9-years-210526501883,2026-05-23T17:58:59.729259
-090226029210,Data Scientist (Software Delivery Analyst - Optimus AI),Mckinsey & Company,search,https://www.naukri.com/job-listings-data-scientist-software-delivery-analyst-optimus-ai-mckinsey-company-gurugram-bengaluru-1-to-5-years-090226029210,2026-05-25T08:17:08.284306
+090226029210,Data Scientist (Software Delivery Analyst - Optimus AI),Mckinsey & Company,search,https://www.mckinsey.com/careers/search-jobs/jobs/seniorsoftwaredeliveryanalyst-optimusai-110000?appsource=JobBoard:Naukri.com,2026-05-25T08:17:08.284306
 260526505233,Generative AI Engineer,DXC Technology,search,https://www.naukri.com/job-listings-generative-ai-engineer-dxc-technology-chennai-4-to-18-years-260526505233,2026-05-28T07:40:31.069538
 260526505609,AI Engineer,Infobeans,search,https://www.naukri.com/job-listings-ai-engineer-infobeans-systems-i-pvt-ltd-indore-pune-chennai-vadodara-2-to-7-years-260526505609,2026-05-28T07:40:57.371699
 270526502517,AI Engineer,EXA AG,search,https://www.naukri.com/job-listings-ai-engineer-exa-ag-india-pvt-ltd-bengaluru-4-to-5-years-270526502517,2026-05-28T07:41:04.542514
@@ -1071,7 +1071,7 @@ job_id,title,company,source,apply_link,documented_at
 040826928923,Senior Full Stack Engineer,Optum,search,https://www.naukri.com/job-listings-senior-full-stack-engineer-optum-global-solutions-india-private-limited-gurugram-4-to-8-years-040826928923,2026-08-05T02:08:38.517723+00:00
 040826503826,Software Developer,Suprajit Eng,search,https://www.naukri.com/job-listings-software-developer-suprajit-engineering-ltd-bengaluru-2-to-5-years-040826503826,2026-08-05T02:08:38.527432+00:00
 040826928977,Senior AI/ML Engineer,Optum,search,https://www.naukri.com/job-listings-senior-ai-ml-engineer-optum-global-solutions-india-private-limited-bengaluru-3-to-7-years-040826928977,2026-08-05T02:08:38.534464+00:00
-040826929000,Lead Data Product Management Consultant,Wells Fargo,search,https://www.naukri.com/job-listings-lead-data-product-management-consultant-wells-fargo-international-solutions-private-ltd-bengaluru-3-to-8-years-040826929000,2026-08-05T02:08:38.541400+00:00
+040826929000,Lead Data Product Management Consultant,Wells Fargo,search,https://wd1.myworkdaysite.com/en-US/recruiting/wf/WellsFargoJobs/job/Bengaluru-India/Lead-Data-Product-Management-Consultant_R-536220,2026-08-05T02:08:38.541400+00:00
 040826926669,Data Scientist-Artificial Intelligence,IBM,search,https://www.naukri.com/job-listings-data-scientist-artificial-intelligence-ibm-india-pvt-limited-bengaluru-1-to-6-years-040826926669,2026-08-05T02:08:38.550024+00:00
 040826502600,Sr Software Engineer,Nomura,search,https://www.naukri.com/job-listings-sr-software-engineer-nomura-capital-india-private-limited-mumbai-3-to-8-years-040826502600,2026-08-05T02:08:38.558111+00:00
 040826500851,Senior Software Developer,VS Cloud Technologies,search,https://www.naukri.com/job-listings-senior-software-developer-vs-cloud-technologies-greater-noida-2-to-7-years-040826500851,2026-08-05T02:08:38.570174+00:00
@@ -1672,3 +1672,7 @@ job_id,title,company,source,apply_link,documented_at
 110826934516,AI / ML Engineer,Accenture,search,https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5317737-S1941288_en&title=AI+%2F+ML+Engineer&SRC=RECNau,2026-08-12T05:33:20.375488+00:00
 110826934430,AI / ML Engineer,Accenture,search,https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5104778-S1887683_en&title=AI+%2F+ML+Engineer&SRC=RECNau,2026-08-12T05:33:20.376337+00:00
 110826934251,AI / ML Engineer,Accenture,search,https://www.accenture.com/in-en/careers/jobdetails?id=ATCI-5318932-S1941168_en&title=AI+%2F+ML+Engineer&SRC=RECNau,2026-08-12T05:33:20.431024+00:00
+120826500196,Machine Learning Engineer,Adobe,search,https://careers.adobe.com/us/en/job/R170782/Machine-Learning-Engineer,2026-08-12T08:57:11.066553+00:00
+120826500070,Regional AI & Data Hub Manager,Bureau Veritas India Pvt. Ltd.,search,https://careers.bureauveritas.com/India/job/Noida-Regional-AI-&-Data-Hub-Manager-Utta/1421555133/,2026-08-12T08:57:11.067628+00:00
+120826500023,AI Developer,Axs Solutions,search,https://axs-solutions.com/careers/,2026-08-12T08:57:11.068584+00:00
+110826937404,Application Engineer - IV,Vanguard,search,https://vanguard.wd5.myworkdayjobs.com/en-US/vanguard_external/job/Hyderabad-India/Application-Engineer---IV-CS-EP-E---Agentic_179106,2026-08-12T08:57:11.095553+00:00
